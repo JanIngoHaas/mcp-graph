@@ -1,3 +1,7 @@
+// TODO: Refactor this file to use the new service architecture
+// This file is temporarily commented out during refactoring
+
+/*
 import { QueryEngine, QueryEngineFactory } from '@comunica/query-sparql';
 import { IriTerm, Parser, Pattern, Triple, Variable } from 'sparqljs';
 import { ExplorationService } from './exploration.js';
@@ -201,43 +205,6 @@ async function checkPattern(pat: Pattern, expService: ExplorationService, typing
     return [];
 }
 
-/*
-
-
-Cases:
-1) 
-?s a ?type .
-?s ?p ?o . 
-
-- ?s is _typed_. Check if correct domain and range.
-
-2) 
-... Does above pattern work recursively too? NOt sure (see below...)
-
-3) 
-?s ?p ?o .
-BIND(?s AS ?s2) .
-?s2 a ?type .
-
----> Here: ?s and ?s2 refer to the same subject, i.e. basically an alias. 
-Collect all into equivalence classes.
-
-2) (For later, after more testing...)
-We could have something like:
-
-?p2 a ?type .
-?s ?t ?p2 .
-?s ?p ?o .
-
-- ?s is _untyped_. The relation of s with p2 over t is not enough to infer the type of s. 
-=> Error: Force the model to type ?s 
-
----- 
-What else?
-
-*/
-
-
 export async function checkQueryConstraints(query: string, explorationService: ExplorationService): Promise<string> {
 
     // 1) Parse the query
@@ -274,3 +241,4 @@ export async function checkQueryConstraints(query: string, explorationService: E
 
     return "";
 }
+*/

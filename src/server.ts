@@ -1,6 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { ExplorationService, ResourceResult } from './exploration.js';
+import { QueryService } from './services/QueryService.js';
+import { SearchService } from './services/SearchService.js';
+import { InspectionService } from './services/InspectionService.js';
+import { EmbeddingService } from './services/EmbeddingService.js';
+import { DatabaseService } from './services/DatabaseService.js';
+import { ResourceResult } from './types.js';
 
 export function createServer(dbPath?: string, sparqlEndpoint?: string): McpServer {
   const server = new McpServer({
@@ -8,27 +13,32 @@ export function createServer(dbPath?: string, sparqlEndpoint?: string): McpServe
     version: '0.1.0',
   });
 
-  const explorationService = new ExplorationService(dbPath, sparqlEndpoint);
+  // Initialize services
+  const queryService = new QueryService();
+  const embeddingService = new EmbeddingService();
+  const databaseService = new DatabaseService(dbPath);
+  const searchService = new SearchService(queryService, embeddingService, databaseService);
+  const inspectionService = new InspectionService(queryService);
 
   // Initialize exploration on startup if SPARQL endpoint is provided
   if (sparqlEndpoint) {
-    explorationService.needsExploration().then(async (needsExploration) => {
+    databaseService.needsExploration(sparqlEndpoint).then(async (needsExploration: boolean) => {
       if (needsExploration) {
         console.error('Starting ontology exploration from SPARQL endpoint...');
-        return explorationService.exploreOntology([sparqlEndpoint], {
+        const ontologyMap = await searchService.exploreOntology([sparqlEndpoint], {
           includeLabels: true,
           includeDescriptions: true,
           batchSize: 50,
-          onProgress: (processed) => {
+          onProgress: (processed: number) => {
             console.error(`Processed ${processed} ontological constructs...`);
           }
         });
+        await searchService.saveOntologyWithEmbeddings(ontologyMap, sparqlEndpoint);
+        console.error('Ontology exploration completed.');
       } else {
         console.error('Database already contains data for this endpoint, skipping exploration.');
       }
-    }).then(() => {
-      console.error('Ontology exploration completed.');
-    }).catch((error) => {
+    }).catch((error: any) => {
       console.error('Ontology exploration failed:', error);
     });
   }
@@ -40,7 +50,7 @@ export function createServer(dbPath?: string, sparqlEndpoint?: string): McpServe
     },
   }, async (request: { query: string }) => {
     const { query } = request;
-    const res = await explorationService.executeQuery(query, [sparqlEndpoint || '']);
+    const res = await queryService.executeQuery(query, [sparqlEndpoint || '']);
     
     return {
       content: [
@@ -69,7 +79,7 @@ export function createServer(dbPath?: string, sparqlEndpoint?: string): McpServe
       throw new Error('Query parameter is required');
     }
 
-    const results = await explorationService.searchOntology(query, limit);
+    const results = await searchService.searchOntology(query, sparqlEndpoint || '', limit);
     
     if (results.length === 0) {
       return {
@@ -82,7 +92,7 @@ export function createServer(dbPath?: string, sparqlEndpoint?: string): McpServe
       };
     }
 
-    let response = results.map(res => `**${res.type.charAt(0).toUpperCase() + res.type.slice(1)}: ${res.label || res.uri}**\n   - URI: ${res.uri}\n   - Type: ${res.type}\n   - Description: ${res.description || 'No description available'}\n   - Use inspectURI to see full details`).join('\n\n');
+    let response = results.map((res: any) => `**${res.label || res.uri}**\n   - URI: ${res.uri}\n   - Similarity: ${res.similarity}\n   - Description: ${res.description || 'No description available'}\n   - Use inspectURI to see full details`).join('\n\n');
   
     return {
       content: [
@@ -98,7 +108,7 @@ export function createServer(dbPath?: string, sparqlEndpoint?: string): McpServe
   server.registerTool(
     'searchAll',
     {
-      description: 'Search for any RDF entities (resources, individuals, concepts) using syntactic full-text search. Does not search properties - use searchProperties for that. Examples: "Einstein" (finds Albert Einstein), "quantum*" (finds quantum mechanics, quantum physics)',
+      description: 'Search for any RDF entities (resources, individuals, concepts) using syntactic full-text search. Examples: "Einstein" (finds Albert Einstein), "quantum*" (finds quantum mechanics, quantum physics)',
       inputSchema: {
         query: z.string().describe('The search query to find entities. Uses syntactic full-match search with wildcard support (e.g., "Einstein", "quantum*")'),
         limit: z.number().optional().default(20).describe('Maximum number of results to return (default: 20)'),
@@ -116,7 +126,7 @@ export function createServer(dbPath?: string, sparqlEndpoint?: string): McpServe
         throw new Error('SPARQL endpoint not configured');
       }
 
-      const results = await explorationService.searchAll(query, limit, offset);
+      const results = await searchService.searchAll(query, sparqlEndpoint, limit, offset);
       
       if (results.length === 0) {
         return {
@@ -177,7 +187,7 @@ export function createServer(dbPath?: string, sparqlEndpoint?: string): McpServe
       }
 
       try {
-        const result = await explorationService.inspect(uri);
+        const result = await inspectionService.inspect(uri, sparqlEndpoint || '');
         
         return {
           content: [
