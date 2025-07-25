@@ -3,40 +3,68 @@ import { FeatureExtractionPipeline, pipeline } from "@huggingface/transformers";
 export class EmbeddingService {
   private _embedder: FeatureExtractionPipeline | null = null;
 
-  async embed(text: string[], instruction?: string): Promise<Array<Float32Array>> {
+  async embed(
+    text: string[],
+    instruction: boolean,
+    onBatchComplete: (
+      batchTexts: string[],
+      embeddings: Float32Array[]
+    ) => Promise<void>
+  ): Promise<void> {
     if (!this._embedder) {
-      console.error('Initializing embedding model (Qwen3-Embedding-0.6B)...');
-      try {
-        // Try CUDA first
-        this._embedder = await pipeline('feature-extraction', 'onnx-community/Qwen3-Embedding-0.6B-ONNX', {
-          device: 'gpu',
-        });
-        console.error('Embedding model loaded successfully on GPU');
-      } catch (error) {
-        // Fallback to CPU
-        console.error('GPU not available, falling back to CPU...');
-        this._embedder = await pipeline('feature-extraction', 'onnx-community/Qwen3-Embedding-0.6B-ONNX');
-        console.error('Embedding model loaded successfully on CPU');
-      }
+      console.error("Initializing embedding model (Qwen3-Embedding-0.6B)...");
+      this._embedder = await pipeline(
+        "feature-extraction",
+        "onnx-community/Qwen3-Embedding-0.6B-ONNX",
+        {
+          device: "auto",
+          dtype: "fp32",
+          progress_callback: (progress) => {
+            if (progress.status === "progress") {
+              console.log(`Loading embedding model: ${progress.progress}`);
+            }
+          },
+        }
+      );
+      console.error("Embedding model loaded successfully");
     }
 
     // Format text with instruction if provided (instruction-aware embeddings)
-    const formattedTexts = text.map(t => {
+    const formattedTexts = text.map((t) => {
       if (instruction) {
-        return `Instruct: ${instruction}\nQuery: ${t}`;
+        return `Instruct: Given a keyword-like query, return the most relevant passages most similar to the question.\nQuery: ${t}`;
       }
       return t;
     });
 
-    // Process all texts in a single batch for better performance
-    const result = await this._embedder(formattedTexts, {
-      pooling: 'mean',
-      normalize: true
-    });
-    const resultList = result.tolist();
+    const batchSize = parseInt(process.env.EMBEDDING_BATCH_SIZE || "32");
 
-    // Convert 2D JS list to array of Float32Arrays
-    const embeddings = resultList.map((embedding: number[]) => new Float32Array(embedding));
-    return embeddings;
+    for (let i = 0; i < formattedTexts.length; i += batchSize) {
+      const batch = formattedTexts.slice(i, i + batchSize);
+      const originalBatch = text.slice(i, i + batchSize);
+
+      console.error(
+        `Processing embedding batch ${
+          Math.floor(i / batchSize) + 1
+        }/${Math.ceil(formattedTexts.length / batchSize)} (${
+          batch.length
+        } texts)`
+      );
+
+      const result = await this._embedder(batch, {
+        pooling: "mean",
+        normalize: true,
+      });
+      const resultList = result.tolist();
+
+      // Convert 2D JS list to array of Float32Arrays
+      const batchEmbeddings = resultList.map(
+        (embedding: number[]) => new Float32Array(embedding)
+      );
+
+      result.dispose();
+      // Call the callback to store embeddings immediately
+      await onBatchComplete(originalBatch, batchEmbeddings);
+    }
   }
 }

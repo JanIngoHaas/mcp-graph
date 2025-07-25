@@ -1,88 +1,82 @@
-import { QueryService } from './QueryService';
-import { EmbeddingService } from './EmbeddingService';
-import { DatabaseService } from './DatabaseService';
-import { ResourceResult, OntologyItem, ExplorationOptions } from '../types';
-import { getReadableName } from '../utils.js';
+import { QueryService } from "./QueryService";
+import { EmbeddingService } from "./EmbeddingService";
+import { DatabaseService } from "./DatabaseService";
+import { ResourceResult, OntologyItem, ExplorationOptions } from "../types";
+import { getReadableName } from "../utils.js";
 
 export class SearchService {
   private queryService: QueryService;
   private embeddingService: EmbeddingService;
   private databaseService: DatabaseService;
 
-  constructor(queryService: QueryService, embeddingService: EmbeddingService, databaseService: DatabaseService) {
+  constructor(
+    queryService: QueryService,
+    embeddingService: EmbeddingService,
+    databaseService: DatabaseService
+  ) {
     this.queryService = queryService;
     this.embeddingService = embeddingService;
     this.databaseService = databaseService;
   }
 
-
   async exploreOntology(
     sources: string[],
     options: ExplorationOptions = {}
   ): Promise<Map<string, OntologyItem>> {
-    const batchSize = options.batchSize || 100;
     const ontologyMap = new Map<string, OntologyItem>();
-
-    let offset = 0;
     let processedTotal = 0;
-    let hasMore = true;
 
-    console.error(`Starting ontology exploration with sources: ${sources.join(', ')}`);
-    console.error(`Batch size: ${batchSize}, Include labels: ${options.includeLabels}, Include descriptions: ${options.includeDescriptions}`);
+    console.error(
+      `Starting ontology exploration with sources: ${sources.join(", ")}`
+    );
+    console.error(
+      `Include labels: ${options.includeLabels}, Include descriptions: ${options.includeDescriptions}`
+    );
 
-    while (hasMore) {
-      try {
-        const bindings = await this.queryOntologyBatch(sources, options, offset, batchSize);
+    try {
+      const bindings = await this.queryOntologyBatch(sources, options);
 
-        console.error(`Fetched ${bindings.length} ontological constructs from SPARQL endpoint (offset: ${offset})`);
+      console.error(
+        `Fetched ${bindings.length} ontological constructs from SPARQL endpoint`
+      );
 
-        if (bindings.length === 0) {
-          console.error('No more ontological constructs returned, ending exploration');
-          hasMore = false;
-          break;
+      for (const binding of bindings) {
+        const ontologyUri = binding.uri?.value;
+        const label = binding.label?.value;
+        const description = binding.description?.value;
+
+        if (!ontologyUri) continue;
+
+        if (!ontologyMap.has(ontologyUri)) {
+          ontologyMap.set(ontologyUri, {
+            uri: ontologyUri,
+            description,
+            label,
+          });
         }
-
-        for (const binding of bindings) {
-          const ontologyUri = binding.uri?.value;
-          const label = binding.label?.value;
-          const description = binding.description?.value;
-
-          if (!ontologyUri) continue;
-
-          if (!ontologyMap.has(ontologyUri)) {
-            ontologyMap.set(ontologyUri, {
-              uri: ontologyUri,
-              description,
-              label,
-            });
-          }
-        }
-
-        processedTotal += bindings.length;
-        offset += batchSize;
-        hasMore = bindings.length === batchSize;
-
-        if (options.onProgress) {
-          options.onProgress(processedTotal);
-        }
-      } catch (error) {
-        console.error(`Error querying SPARQL endpoint at offset ${offset}:`, error);
-        hasMore = false;
       }
+
+      processedTotal += bindings.length;
+
+      if (options.onProgress) {
+        options.onProgress(processedTotal);
+      }
+    } catch (error) {
+      console.error(`Error querying SPARQL endpoint:`, error);
     }
 
     console.error(`\n=== Ontology Exploration Complete ===`);
-    console.error(`Total unique ontological constructs discovered: ${ontologyMap.size}`);
-    console.error(`Total bindings processed: ${processedTotal}`);
+    console.error(
+      `Total unique ontological constructs discovered: ${ontologyMap.size}`
+    );
+    console.error(`Total discovered: ${processedTotal}`);
 
     return ontologyMap;
   }
 
   private async queryOntologyBatch(
     sources: string[],
-    options: ExplorationOptions,
-    offset: number,
-    batchSize: number
+    options: ExplorationOptions
   ): Promise<any[]> {
     let query = `
       PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -101,6 +95,10 @@ export class SearchService {
       {
         ?uri rdf:type ?ty .
         FILTER(?ty IN (rdfs:Class, rdf:Property, owl:Class))
+      } UNION {
+        ?prop ?rangeDomain ?uri .
+        FILTER(?rangeDomain IN (rdfs:domain, rdfs:range)) .
+        BIND(<http://www.w3.org/2002/07/owl#Class> AS ?ty)
       }`;
 
     if (options.includeLabels) {
@@ -124,35 +122,63 @@ export class SearchService {
       FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/2002/07/owl#"))
       FILTER(!CONTAINS(STR(?uri), "http://www.openlinksw.com/schemas/"))
     }
-    ORDER BY ?uri ?type
-    LIMIT ${batchSize}
-    OFFSET ${offset}`;
+    ORDER BY ?uri ?type`;
 
     return await this.queryService.executeQuery(query, sources);
   }
 
-  async searchOntology(userQuery: string, sparqlEndpoint: string, limit: number = 10): Promise<Array<{ uri: string, label: string, description: string, similarity: number }>> {
+  async searchOntology(
+    userQuery: string,
+    sparqlEndpoint: string,
+    limit: number = 10
+  ): Promise<
+    Array<{
+      uri: string;
+      label: string;
+      description: string;
+      similarity: number;
+    }>
+  > {
     if (!sparqlEndpoint) {
-      throw new Error('SPARQL endpoint not configured for search');
+      throw new Error("SPARQL endpoint not configured for search");
     }
 
     // Generate embedding for user query
-    const queryEmbedding = await this.embeddingService.embed([userQuery], 'Given a search query, retrieve a list of semantically similar ontological constructs');
-    const queryVector = queryEmbedding[0];
+    let queryVector: Float32Array | undefined;
+    await this.embeddingService.embed(
+      [userQuery],
+      true,
+      async (batchTexts, embeddings) => {
+        queryVector = embeddings[0];
+      }
+    );
 
-    const results = await this.databaseService.searchOntology(queryVector, sparqlEndpoint, limit);
+    if (!queryVector) {
+      throw new Error("Failed to generate query embedding");
+    }
+
+    const results = await this.databaseService.searchOntology(
+      queryVector,
+      sparqlEndpoint,
+      limit
+    );
 
     return results.map((row: any) => ({
       uri: row.uri,
       label: row.label || getReadableName(row.uri),
-      description: row.description || 'No description available',
-      similarity: row.similarity
+      description: row.description || "No description available",
+      similarity: row.similarity,
     }));
   }
 
-  async searchAll(searchQuery: string, sparqlEndpoint: string, limit: number = 20, offset: number = 0): Promise<ResourceResult[]> {
+  async searchAll(
+    searchQuery: string,
+    sparqlEndpoint: string,
+    limit: number = 20,
+    offset: number = 0
+  ): Promise<ResourceResult[]> {
     if (!sparqlEndpoint) {
-      throw new Error('SPARQL endpoint not configured for search');
+      throw new Error("SPARQL endpoint not configured for search");
     }
 
     // Build SPARQL query with Virtuoso's bif:contains
@@ -181,43 +207,76 @@ export class SearchService {
     `;
 
     try {
-      const results = await this.queryService.executeQuery(query, [sparqlEndpoint]);
+      const results = await this.queryService.executeQuery(query, [
+        sparqlEndpoint,
+      ]);
 
-      return results.map((binding: any) => ({
-        uri: binding.resource?.value || '',
-        label: binding.label?.value,
-        description: binding.description?.value
-      })).filter(result => result.uri); // Filter out empty URIs
+      return results
+        .map((binding: any) => ({
+          uri: binding.resource?.value || "",
+          label: binding.label?.value,
+          description: binding.description?.value,
+        }))
+        .filter((result) => result.uri); // Filter out empty URIs
     } catch (error) {
       throw error;
     }
   }
 
-  async saveOntologyWithEmbeddings(ontologyMap: Map<string, OntologyItem>, sparqlEndpoint: string): Promise<void> {
+  async saveOntologyWithEmbeddings(
+    ontologyMap: Map<string, OntologyItem>,
+    sparqlEndpoint: string
+  ): Promise<void> {
     const ontologyTexts: string[] = [];
     const ontologyInfos: OntologyItem[] = [];
 
-    console.error('Preparing ontology texts for embedding...');
+    console.error("Preparing ontology texts for embedding...");
     // Prepare ontology texts for embedding (description || label)
     for (const onto of ontologyMap.values()) {
-      const embeddingText = onto.description || onto.label || getReadableName(onto.uri);
+      const embeddingText =
+        onto.description || onto.label || getReadableName(onto.uri);
       if (embeddingText) {
         ontologyTexts.push(embeddingText);
         ontologyInfos.push(onto);
       }
     }
 
-    console.error(`Prepared ${ontologyTexts.length} ontological constructs for embedding`);
+    console.error(
+      `Prepared ${ontologyTexts.length} ontological constructs for embedding`
+    );
 
-    // Generate embeddings in batch
+    // Generate embeddings in batch with callback to save immediately
     if (ontologyTexts.length > 0) {
-      const embeddings = await this.embeddingService.embed(ontologyTexts);
-      await this.databaseService.saveOntologyToDatabase(ontologyMap, sparqlEndpoint, embeddings);
-    } else {
-      console.error('No ontological constructs to save to database');
-    }
+      let processedCount = 0;
+      await this.embeddingService.embed(
+        ontologyTexts,
+        false,
+        async (batchTexts, embeddings) => {
+          const batchOntologyItems = ontologyInfos.slice(
+            processedCount,
+            processedCount + batchTexts.length
+          );
+          const batchMap = new Map<string, OntologyItem>();
+          batchOntologyItems.forEach((item) => batchMap.set(item.uri, item));
+          await this.databaseService.saveOntologyToDatabase(
+            batchMap,
+            sparqlEndpoint,
+            embeddings
+          );
 
-    // Record the endpoint that was used for this exploration
-    await this.databaseService.recordEndpoint(sparqlEndpoint);
+          processedCount += batchTexts.length;
+
+          if (processedCount === ontologyInfos.length) {
+            console.error(
+              `All ${ontologyInfos.length} ontological constructs saved with embeddings`
+            );
+            // Record the endpoint that was used for this exploration
+            await this.databaseService.recordEndpoint(sparqlEndpoint);
+          }
+        }
+      );
+    } else {
+      console.error("No ontological constructs to save to database");
+    }
   }
 }
