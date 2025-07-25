@@ -1,6 +1,6 @@
-import { QueryService } from "./QueryService";
-import { EmbeddingService } from "./EmbeddingService";
-import { DatabaseService } from "./DatabaseService";
+import { QueryService } from "./QueryHelper";
+import { EmbeddingService } from "./EmbeddingHelper";
+import { DatabaseService } from "./DatabaseHelper";
 import { ResourceResult, OntologyItem, ExplorationOptions } from "../types";
 import { getReadableName } from "../utils.js";
 

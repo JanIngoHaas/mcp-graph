@@ -1,10 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { QueryService } from "./services/QueryService.js";
+import { QueryService } from "./services/QueryHelper.js";
 import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
-import { EmbeddingService } from "./services/EmbeddingService.js";
-import { DatabaseService } from "./services/DatabaseService.js";
+import { EmbeddingService } from "./services/EmbeddingHelper.js";
+import { DatabaseService } from "./services/DatabaseHelper.js";
 import { ResourceResult } from "./types.js";
 
 export function createServer(
