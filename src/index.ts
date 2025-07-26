@@ -28,7 +28,17 @@ async function main() {
 
   Logger.info("Starting MCP Graph server...", { dbPath, sparqlEndpoint });
 
-  const server = await createServer(sparqlEndpoint, dbPath);
+  // Check for init mode from argv or environment variable
+  const initOnly =
+    process.argv.includes("--init") || process.env.INIT === "true";
+
+  const server = await createServer(sparqlEndpoint, initOnly, dbPath);
+  
+  if (initOnly) {
+    Logger.info("Initialization complete. Exiting.");
+    process.exit(0);
+  }
+  
   const transport = new StdioServerTransport();
   await server.connect(transport);
   Logger.info("Server started successfully.");

@@ -23,6 +23,7 @@
   "scripts": {
     "build": "tsc",
     "start": "tsc && node dist/index.js",
+    "init": "tsc && node dist/index.js --init",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand"
   },
   "bin": {

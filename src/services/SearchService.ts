@@ -71,43 +71,40 @@ export class SearchService {
   }
 
   private async queryOntologyAll(source: string): Promise<any[]> {
-    let query = `
+    const query = `
       PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
       PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-      SELECT DISTINCT ?uri ?label ?description`;
+      SELECT DISTINCT ?uri ?label ?description
+      WHERE {
+        # Find classes and properties through direct typing or domain/range references
+        {
+          ?uri rdf:type ?ty .
+          FILTER(?ty IN (rdfs:Class, rdf:Property, owl:Class))
+        } UNION {
+          ?prop ?rangeDomain ?uri .
+          FILTER(?rangeDomain IN (rdfs:domain, rdfs:range)) .
+          BIND(<http://www.w3.org/2002/07/owl#Class> AS ?ty)
+        }
 
-    query += `  WHERE {
-      {
-        ?uri rdf:type ?ty .
-        FILTER(?ty IN (rdfs:Class, rdf:Property, owl:Class))
-      } UNION {
-        ?prop ?rangeDomain ?uri .
-        FILTER(?rangeDomain IN (rdfs:domain, rdfs:range)) .
-        BIND(<http://www.w3.org/2002/07/owl#Class> AS ?ty)
-      }`;
+        # Extract labels from multiple vocabularies
+        OPTIONAL { ?uri rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
+        OPTIONAL { ?uri <http://www.w3.org/2004/02/skos/core#prefLabel> ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
+        OPTIONAL { ?uri <http://purl.org/dc/elements/1.1/title> ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
+        BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle) AS ?label)
 
-    // Labels
-    query += `
-      OPTIONAL { ?uri rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
-      OPTIONAL { ?uri <http://www.w3.org/2004/02/skos/core#prefLabel> ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
-      OPTIONAL { ?uri <http://purl.org/dc/elements/1.1/title> ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
-      BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle) AS ?label)`;
+        # Extract descriptions from multiple vocabularies
+        OPTIONAL { ?uri rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
+        OPTIONAL { ?uri <http://dbpedia.org/ontology/abstract> ?dboAbstract . FILTER(LANG(?dboAbstract) = "en" || LANG(?dboAbstract) = "") }
+        OPTIONAL { ?uri <http://www.w3.org/2004/02/skos/core#definition> ?skosDefinition . FILTER(LANG(?skosDefinition) = "en" || LANG(?skosDefinition) = "") }
+        OPTIONAL { ?uri <http://purl.org/dc/elements/1.1/description> ?dcDescription . FILTER(LANG(?dcDescription) = "en" || LANG(?dcDescription) = "") }
+        BIND(COALESCE(?dboAbstract, ?rdfsComment, ?skosDefinition, ?dcDescription) AS ?description)
 
-    // Descriptions
-    query += `
-      OPTIONAL { ?uri rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
-      OPTIONAL { ?uri <http://dbpedia.org/ontology/abstract> ?dboAbstract . FILTER(LANG(?dboAbstract) = "en" || LANG(?dboAbstract) = "") }
-      OPTIONAL { ?uri <http://www.w3.org/2004/02/skos/core#definition> ?skosDefinition . FILTER(LANG(?skosDefinition) = "en" || LANG(?skosDefinition) = "") }
-      OPTIONAL { ?uri <http://purl.org/dc/elements/1.1/description> ?dcDescription . FILTER(LANG(?dcDescription) = "en" || LANG(?dcDescription) = "") }
-      BIND(COALESCE(?dboAbstract, ?rdfsComment, ?skosDefinition, ?dcDescription) AS ?description)`;
-
-    query += `
-      FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/2002/07/owl#"))
-      FILTER(!CONTAINS(STR(?uri), "http://www.openlinksw.com/schemas/"))
-    }
-    LIMIT 100000
-    GROUP BY ?uri ?label ?description
-    ORDER BY ?uri ?label ?description`;
+        # Filter out unwanted schema namespaces
+        FILTER(!CONTAINS(STR(?uri), "http://www.openlinksw.com/schemas/"))
+      }
+      GROUP BY ?uri ?label ?description
+      ORDER BY ?uri ?label ?description
+      LIMIT 40000`;
 
     return await this.queryService.executeQuery(query, [source]);
   }

@@ -9,6 +9,7 @@ import Logger from "./utils/logger.js";
 
 export async function createServer(
   sparqlEndpoint: string,
+  initOnly: boolean = false,
   dbPath?: string
 ): Promise<McpServer> {
   const server = new McpServer({
@@ -35,6 +36,12 @@ export async function createServer(
       } processed`
     );
   });
+
+  if (initOnly) {
+    Logger.info(
+      'Initialization complete with "init only" mode. No tools registered.'
+    );
+  }
 
   server.registerTool(
     "makeQuery",
