@@ -72,45 +72,45 @@ export async function createServer(
   );
 
   // Register the search ontology tool
-  server.registerTool(
-    "searchOntology",
-    {
-      description:
-        'Search for RDF ontological constructs (classes, properties, datatypes, etc.). Returns ontology URIs - use inspectMetadata for full details. Examples: "person birth date" (finds birthDate property), "location coordinates" (finds geographic properties), "organization class" (finds Organization class)',
-      inputSchema: {
-        query: z.string().describe("The natural language search query"),
-        limit: z
-          .number()
-          .optional()
-          .default(10)
-          .describe("Maximum number of results to return (default: 10)"),
-      },
-    },
-    async (request: { query: string; limit: number }) => {
-      const { query, limit } = request;
+  // server.registerTool(
+  //   "searchOntology",
+  //   {
+  //     description:
+  //       'Search for RDF ontological constructs (classes, properties, datatypes, etc.). Returns ontology URIs - use inspectMetadata for full details. Examples: "person birth date" (finds birthDate property), "location coordinates" (finds geographic properties), "organization class" (finds Organization class)',
+  //     inputSchema: {
+  //       query: z.string().describe("The natural language search query"),
+  //       limit: z
+  //         .number()
+  //         .optional()
+  //         .default(10)
+  //         .describe("Maximum number of results to return (default: 10)"),
+  //     },
+  //   },
+  //   async (request: { query: string; limit: number }) => {
+  //     const { query, limit } = request;
 
-      if (!query) {
-        throw new Error("Query parameter is required");
-      }
+  //     if (!query) {
+  //       throw new Error("Query parameter is required");
+  //     }
 
-      const results = await searchService.searchOntology(
-        query,
-        sparqlEndpoint,
-        limit
-      );
+  //     const results = await searchService.searchOntology(
+  //       query,
+  //       sparqlEndpoint,
+  //       limit
+  //     );
 
-      const response = searchService.renderOntologyResult(results);
+  //     const response = searchService.renderOntologyResult(results);
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: response,
-          },
-        ],
-      };
-    }
-  );
+  //     return {
+  //       content: [
+  //         {
+  //           type: "text",
+  //           text: response,
+  //         },
+  //       ],
+  //     };
+  //   }
+  // );
 
   // Register the search all tool
   server.registerTool(
@@ -122,7 +122,7 @@ export async function createServer(
         query: z
           .string()
           .describe(
-            'The search query to find entities. Uses syntactic full-match search with wildcard support (e.g., "Einstein", "quantum*")'
+            'The search query to find entities. Uses syntactic full-match search with wildcard support (e.g., "Einstein", "quantum*"). NOTE: This is not a semantic search - use precise single-word or sub-word queries for best results (e.g. "Einstein" or "Einst" instead of "Albert Einstein works")'
           ),
         limit: z
           .number()

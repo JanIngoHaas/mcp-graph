@@ -22,7 +22,13 @@ This server provides tools for exploring SPARQL endpoints and RDF data sources. 
 npm install -g .
 ```
 
-This installs the `sparql-mcp` command globally, making it available system-wide without hardcoded paths.
+This installs the `sparql-mcp` command globally, making it available system-wide without hardcoded paths. Now you need to setup the MCP Graph for a SPARQL Endpoint. Set the required environement variables (only SPARQL_ENDPOINT is required) and run
+
+```bash
+npm run init
+```
+
+This configures the database for RAG purposes.
 
 ## MCP Tools
 
