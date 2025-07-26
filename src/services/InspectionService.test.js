@@ -1,13 +1,13 @@
 import { InspectionService } from '../../dist/services/InspectionService.js';
-import { QueryService } from '../../dist/services/QueryService.js';
+import { QueryHelper } from '../../dist/services/QueryHelper.js';
 
 let inspectionService;
-let queryService;
+let queryHelper;
 const SPARQL_EP = 'https://dbpedia.org/sparql';
 
 beforeAll(() => {
-    queryService = new QueryService();
-    inspectionService = new InspectionService(queryService);
+    queryHelper = new QueryHelper();
+    inspectionService = new InspectionService(queryHelper);
 });
 
 async function testInspectionClass() {

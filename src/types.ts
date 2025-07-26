@@ -1,12 +1,3 @@
-
-export interface ExplorationOptions {
-  includeLabels?: boolean;
-  includeDescriptions?: boolean;
-  batchSize?: number;
-  onProgress?: (processed: number, total?: number) => void;
-  llmBasedExampleQuery?: boolean;
-}
-
 export interface ResourceResult {
   uri: string;
   label?: string;

@@ -1,6 +1,6 @@
 import { FeatureExtractionPipeline, pipeline } from "@huggingface/transformers";
 
-export class EmbeddingService {
+export class EmbeddingHelper {
   private _embedder: FeatureExtractionPipeline | null = null;
 
   async embed(
@@ -17,7 +17,7 @@ export class EmbeddingService {
         "feature-extraction",
         "onnx-community/Qwen3-Embedding-0.6B-ONNX",
         {
-          device: "auto",
+          device: "cpu",
           dtype: "fp32",
           progress_callback: (progress) => {
             if (progress.status === "progress") {
@@ -59,7 +59,11 @@ export class EmbeddingService {
 
       // Convert 2D JS list to array of Float32Arrays
       const batchEmbeddings = resultList.map(
-        (embedding: number[]) => new Float32Array(embedding)
+        (embedding: any) => {
+          // Ensure embedding is a plain array of numbers
+          const embeddingArray = Array.isArray(embedding) ? embedding : Array.from(embedding);
+          return new Float32Array(embeddingArray);
+        }
       );
 
       result.dispose();

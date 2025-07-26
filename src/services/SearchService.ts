@@ -1,40 +1,39 @@
-import { QueryService } from "./QueryHelper";
-import { EmbeddingService } from "./EmbeddingHelper";
-import { DatabaseService } from "./DatabaseHelper";
-import { ResourceResult, OntologyItem, ExplorationOptions } from "../types";
+import { QueryHelper } from "./QueryHelper";
+import { EmbeddingHelper } from "./EmbeddingHelper";
+import { DatabaseHelper } from "./DatabaseHelper";
+import { ResourceResult, OntologyItem } from "../types";
 import { getReadableName } from "../utils.js";
 
 export class SearchService {
-  private queryService: QueryService;
-  private embeddingService: EmbeddingService;
-  private databaseService: DatabaseService;
+  private queryService: QueryHelper;
+  private embeddingService: EmbeddingHelper;
+  private databaseHelper: DatabaseHelper;
 
   constructor(
-    queryService: QueryService,
-    embeddingService: EmbeddingService,
-    databaseService: DatabaseService
+    queryService: QueryHelper,
+    embeddingService: EmbeddingHelper,
+    databaseService: DatabaseHelper
   ) {
     this.queryService = queryService;
     this.embeddingService = embeddingService;
-    this.databaseService = databaseService;
+    this.databaseHelper = databaseService;
   }
 
-  async exploreOntology(
-    sources: string[],
-    options: ExplorationOptions = {}
-  ): Promise<Map<string, OntologyItem>> {
+  public async exploreOntology(
+    source: string,
+    onProgress?: (processed: number, total?: number) => void
+  ): Promise<void> {
+    if (!(await this.databaseHelper.needsExploration(source))) {
+      console.error("Ontology exploration already completed for this source.");
+      return;
+    }
+
     const ontologyMap = new Map<string, OntologyItem>();
     let processedTotal = 0;
 
-    console.error(
-      `Starting ontology exploration with sources: ${sources.join(", ")}`
-    );
-    console.error(
-      `Include labels: ${options.includeLabels}, Include descriptions: ${options.includeDescriptions}`
-    );
-
+    console.error(`Starting ontology exploration with source: ${source}`);
     try {
-      const bindings = await this.queryOntologyBatch(sources, options);
+      const bindings = await this.queryOntologyBatch(source);
 
       console.error(
         `Fetched ${bindings.length} ontological constructs from SPARQL endpoint`
@@ -58,8 +57,8 @@ export class SearchService {
 
       processedTotal += bindings.length;
 
-      if (options.onProgress) {
-        options.onProgress(processedTotal);
+      if (onProgress) {
+        onProgress(processedTotal);
       }
     } catch (error) {
       console.error(`Error querying SPARQL endpoint:`, error);
@@ -71,27 +70,16 @@ export class SearchService {
     );
     console.error(`Total discovered: ${processedTotal}`);
 
-    return ontologyMap;
+    await this.saveOntologyWithEmbeddings(ontologyMap, source);
   }
 
-  private async queryOntologyBatch(
-    sources: string[],
-    options: ExplorationOptions
-  ): Promise<any[]> {
+  private async queryOntologyBatch(source: string): Promise<any[]> {
     let query = `
       PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
       PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-      SELECT DISTINCT ?uri`;
+      SELECT DISTINCT ?uri ?label ?description`;
 
-    if (options.includeLabels) {
-      query += ` ?label`;
-    }
-
-    if (options.includeDescriptions) {
-      query += ` ?description`;
-    }
-
-    query += ` WHERE {
+    query += `  WHERE {
       {
         ?uri rdf:type ?ty .
         FILTER(?ty IN (rdfs:Class, rdf:Property, owl:Class))
@@ -101,22 +89,20 @@ export class SearchService {
         BIND(<http://www.w3.org/2002/07/owl#Class> AS ?ty)
       }`;
 
-    if (options.includeLabels) {
-      query += `
+    // Labels
+    query += `
       OPTIONAL { ?uri rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
       OPTIONAL { ?uri <http://www.w3.org/2004/02/skos/core#prefLabel> ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
       OPTIONAL { ?uri <http://purl.org/dc/elements/1.1/title> ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
       BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle) AS ?label)`;
-    }
 
-    if (options.includeDescriptions) {
-      query += `
+    // Descriptions
+    query += `
       OPTIONAL { ?uri rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
       OPTIONAL { ?uri <http://dbpedia.org/ontology/abstract> ?dboAbstract . FILTER(LANG(?dboAbstract) = "en" || LANG(?dboAbstract) = "") }
       OPTIONAL { ?uri <http://www.w3.org/2004/02/skos/core#definition> ?skosDefinition . FILTER(LANG(?skosDefinition) = "en" || LANG(?skosDefinition) = "") }
       OPTIONAL { ?uri <http://purl.org/dc/elements/1.1/description> ?dcDescription . FILTER(LANG(?dcDescription) = "en" || LANG(?dcDescription) = "") }
       BIND(COALESCE(?dboAbstract, ?rdfsComment, ?skosDefinition, ?dcDescription) AS ?description)`;
-    }
 
     query += `
       FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/2002/07/owl#"))
@@ -124,10 +110,10 @@ export class SearchService {
     }
     ORDER BY ?uri ?type`;
 
-    return await this.queryService.executeQuery(query, sources);
+    return await this.queryService.executeQuery(query, [source]);
   }
 
-  async searchOntology(
+  public async searchOntology(
     userQuery: string,
     sparqlEndpoint: string,
     limit: number = 10
@@ -157,7 +143,7 @@ export class SearchService {
       throw new Error("Failed to generate query embedding");
     }
 
-    const results = await this.databaseService.searchOntology(
+    const results = await this.databaseHelper.searchOntology(
       queryVector,
       sparqlEndpoint,
       limit
@@ -171,7 +157,7 @@ export class SearchService {
     }));
   }
 
-  async searchAll(
+  public async searchAll(
     searchQuery: string,
     sparqlEndpoint: string,
     limit: number = 20,
@@ -223,7 +209,7 @@ export class SearchService {
     }
   }
 
-  async saveOntologyWithEmbeddings(
+  private async saveOntologyWithEmbeddings(
     ontologyMap: Map<string, OntologyItem>,
     sparqlEndpoint: string
   ): Promise<void> {
@@ -258,7 +244,7 @@ export class SearchService {
           );
           const batchMap = new Map<string, OntologyItem>();
           batchOntologyItems.forEach((item) => batchMap.set(item.uri, item));
-          await this.databaseService.saveOntologyToDatabase(
+          await this.databaseHelper.saveOntologyToDatabase(
             batchMap,
             sparqlEndpoint,
             embeddings
@@ -271,7 +257,7 @@ export class SearchService {
               `All ${ontologyInfos.length} ontological constructs saved with embeddings`
             );
             // Record the endpoint that was used for this exploration
-            await this.databaseService.recordEndpoint(sparqlEndpoint);
+            await this.databaseHelper.recordEndpoint(sparqlEndpoint);
           }
         }
       );

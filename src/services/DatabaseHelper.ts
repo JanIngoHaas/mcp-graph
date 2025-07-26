@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { OntologyItem } from "../types";
 
-export class DatabaseService {
+export class DatabaseHelper {
   private _db: Database.Database | null = null;
   private _dbPath: string;
 

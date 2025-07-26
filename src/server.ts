@@ -1,25 +1,25 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { QueryService } from "./services/QueryHelper.js";
+import { QueryHelper } from "./services/QueryHelper.js";
 import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
-import { EmbeddingService } from "./services/EmbeddingHelper.js";
-import { DatabaseService } from "./services/DatabaseHelper.js";
+import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
+import { DatabaseHelper } from "./services/DatabaseHelper.js";
 import { ResourceResult } from "./types.js";
 
-export function createServer(
+export async function createServer(
   dbPath?: string,
   sparqlEndpoint?: string
-): McpServer {
+): Promise<McpServer> {
   const server = new McpServer({
     name: "rdfGraph",
     version: "0.1.0",
   });
 
-  // Initialize services
-  const queryService = new QueryService();
-  const embeddingService = new EmbeddingService();
-  const databaseService = new DatabaseService(dbPath);
+  // Initialize services and helpers
+  const queryService = new QueryHelper();
+  const embeddingService = new EmbeddingHelper();
+  const databaseService = new DatabaseHelper(dbPath);
   const searchService = new SearchService(
     queryService,
     embeddingService,
@@ -29,39 +29,9 @@ export function createServer(
 
   // Initialize exploration on startup if SPARQL endpoint is provided
   if (sparqlEndpoint) {
-    databaseService
-      .needsExploration(sparqlEndpoint)
-      .then(async (needsExploration: boolean) => {
-        if (needsExploration) {
-          console.error(
-            "Starting ontology exploration from SPARQL endpoint..."
-          );
-          const ontologyMap = await searchService.exploreOntology(
-            [sparqlEndpoint],
-            {
-              includeLabels: true,
-              includeDescriptions: true,
-              onProgress: (processed: number) => {
-                console.error(
-                  `Processed ${processed} ontological constructs...`
-                );
-              },
-            }
-          );
-          await searchService.saveOntologyWithEmbeddings(
-            ontologyMap,
-            sparqlEndpoint
-          );
-          console.error("Ontology exploration completed.");
-        } else {
-          console.error(
-            "Database already contains data for this endpoint, skipping exploration."
-          );
-        }
-      })
-      .catch((error: any) => {
-        console.error("Ontology exploration failed:", error);
-      });
+    await searchService.exploreOntology(sparqlEndpoint, (processed, total) => {
+      console.log(`Processed ${processed} items${total ? ` of ${total}` : ""}`);
+    });
   }
 
   server.registerTool(

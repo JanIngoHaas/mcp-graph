@@ -1,9 +1,9 @@
 import { getDisplayName } from "@modelcontextprotocol/sdk/shared/metadataUtils.js";
 import { getReadableName } from "../utils.js";
-import { QueryService } from "./QueryHelper.js";
+import { QueryHelper } from "./QueryHelper.js";
 
 export class InspectionService {
-  constructor(private queryService: QueryService) {
+  constructor(private queryService: QueryHelper) {
     this.queryService = queryService;
   }
 
@@ -20,7 +20,7 @@ b) URI is a class: rdfs:Class, owl:Class
 async function inspectProperty(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryService
+  queryService: QueryHelper
 ): Promise<{
   uri: string;
   label: string;
@@ -115,11 +115,16 @@ async function inspectProperty(
         FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
       }
     `;
-    const hierarchyBindings = await queryService.executeQuery(hierarchyQuery, [sparqlEndpoint]);
-    if (hierarchyBindings && hierarchyBindings.length > 0 && hierarchyBindings[0].hierarchy) {
+    const hierarchyBindings = await queryService.executeQuery(hierarchyQuery, [
+      sparqlEndpoint,
+    ]);
+    if (
+      hierarchyBindings &&
+      hierarchyBindings.length > 0 &&
+      hierarchyBindings[0].hierarchy
+    ) {
       domainHierarchies.set(domainUri, hierarchyBindings[0].hierarchy.value);
     }
-
   }
 
   // Fetch hierarchy information for each range
@@ -132,8 +137,14 @@ async function inspectProperty(
         FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
       }
     `;
-    const hierarchyBindings = await queryService.executeQuery(hierarchyQuery, [sparqlEndpoint]);
-    if (hierarchyBindings && hierarchyBindings.length > 0 && hierarchyBindings[0].hierarchy) {
+    const hierarchyBindings = await queryService.executeQuery(hierarchyQuery, [
+      sparqlEndpoint,
+    ]);
+    if (
+      hierarchyBindings &&
+      hierarchyBindings.length > 0 &&
+      hierarchyBindings[0].hierarchy
+    ) {
       rangeHierarchies.set(rangeUri, hierarchyBindings[0].hierarchy.value);
     }
   }
@@ -156,7 +167,7 @@ async function inspectProperty(
 async function inspectClass(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryService
+  queryService: QueryHelper
 ): Promise<{
   ranges: Map<string, string>;
   domains: Map<string, string>;
@@ -189,32 +200,30 @@ async function inspectClass(
       OPTIONAL { ?classURI dbo:abstract ?dboAbstract . FILTER(LANG(?dboAbstract) = "en" || LANG(?dboAbstract) = "") }
       BIND(COALESCE(?rdfsComment, ?skosNote, ?dcDescription, ?dboAbstract) AS ?classDescr)
 
-      # Find properties that have ANY class in the hierarchy as range
-      OPTIONAL {
+      # Find properties that have this class + parent classes (transitive closure) as range
+      {
         SELECT DISTINCT ?propRange ?propRangeLabel WHERE {
           <${uri}> rdfs:subClassOf* ?rangeClass .
           ?propRange rdfs:range ?rangeClass .
-          #FILTER(?rangeClass != <http://www.w3.org/2002/07/owl#Thing> && ?rangeClass != <http://www.w3.org/2000/01/rdf-schema#Resource>)
           # Get labels for range properties
           OPTIONAL { ?propRange rdfs:label ?propRangeRdfsLabel . FILTER(LANG(?propRangeRdfsLabel) = "en" || LANG(?propRangeRdfsLabel) = "") }
           OPTIONAL { ?propRange skos:prefLabel ?propRangeSkosLabel . FILTER(LANG(?propRangeSkosLabel) = "en" || LANG(?propRangeSkosLabel) = "") }
           OPTIONAL { ?propRange dc:title ?propRangeDcTitle . FILTER(LANG(?propRangeDcTitle) = "en" || LANG(?propRangeDcTitle) = "") }
           BIND(COALESCE(?propRangeRdfsLabel, ?propRangeSkosLabel, ?propRangeDcTitle) AS ?propRangeLabel)
-        }
+        } LIMIT 100000
       }
       
-      # Find properties that have ANY class in the hierarchy as domain
-      OPTIONAL {
+      # Find properties that have this class + parent classes (transitive closure) as domain
+      {
         SELECT DISTINCT ?propDomain ?propDomainLabel WHERE {
           <${uri}> rdfs:subClassOf* ?domainClass .
           ?propDomain rdfs:domain ?domainClass .
-          #FILTER(?domainClass != <http://www.w3.org/2002/07/owl#Thing> && ?domainClass != <http://www.w3.org/2000/01/rdf-schema#Resource>)
           # Get labels for domain properties
           OPTIONAL { ?propDomain rdfs:label ?propDomainRdfsLabel . FILTER(LANG(?propDomainRdfsLabel) = "en" || LANG(?propDomainRdfsLabel) = "") }
           OPTIONAL { ?propDomain skos:prefLabel ?propDomainSkosLabel . FILTER(LANG(?propDomainSkosLabel) = "en" || LANG(?propDomainSkosLabel) = "") }
           OPTIONAL { ?propDomain dc:title ?propDomainDcTitle . FILTER(LANG(?propDomainDcTitle) = "en" || LANG(?propDomainDcTitle) = "") }
           BIND(COALESCE(?propDomainRdfsLabel, ?propDomainSkosLabel, ?propDomainDcTitle) AS ?propDomainLabel)
-        }
+        } LIMIT 100000
       }
     } LIMIT 100000`;
 
@@ -288,7 +297,11 @@ function formatPropertyInspectionResult(inspection: {
         result += `  Class hierarchy: ${hierarchy}\n`;
         result += `  (All classes in this chain can use this property)\n`;
       }
-      result += `  SPARQL Example: Find '${label}' instances using this property:\n    ?${label.toLowerCase().replace(/\s+/g, '')}Instance a <${uri}> .\n    ?${label.toLowerCase().replace(/\s+/g, '')}Instance <${inspection.uri}> ?value .\n\n`;
+      result += `  SPARQL Example: Find instances of type '${label}' using this property:\n    ?${label
+        .toLowerCase()
+        .replace(/\s+/g, "")}Instance a <${uri}> .\n    ?${label
+        .toLowerCase()
+        .replace(/\s+/g, "")}Instance <${inspection.uri}> ?value .\n\n`;
     }
     result += "\n";
   }
@@ -304,7 +317,11 @@ function formatPropertyInspectionResult(inspection: {
         result += `  Class hierarchy: ${hierarchy}\n`;
         result += `  (All classes in this chain can be values for this property)\n`;
       }
-      result += `  SPARQL Example: Find entities pointing to '${label}' instances:\n    ?entity <${inspection.uri}> ?${label.toLowerCase().replace(/\s+/g, '')}Instance .\n    ?${label.toLowerCase().replace(/\s+/g, '')}Instance a <${uri}> .\n\n`;
+      result += `  SPARQL Example: Find entities pointing to '${label}' instances:\n    ?entity <${
+        inspection.uri
+      }> ?${label.toLowerCase().replace(/\s+/g, "")}Instance .\n    ?${label
+        .toLowerCase()
+        .replace(/\s+/g, "")}Instance a <${uri}> .\n\n`;
     }
     result += "\n";
   }
@@ -317,8 +334,9 @@ function formatPropertyInspectionResult(inspection: {
   // Add summary
   const domainCount = inspection.domains.size;
   const rangeCount = inspection.ranges.size;
-  result += `## Total: ${domainCount} domain${domainCount !== 1 ? "s" : ""
-    }, ${rangeCount} range${rangeCount !== 1 ? "s" : ""}\n`;
+  result += `## Total: ${domainCount} domain${
+    domainCount !== 1 ? "s" : ""
+  }, ${rangeCount} range${rangeCount !== 1 ? "s" : ""}\n`;
 
   return result;
 }
@@ -339,8 +357,12 @@ function formatOntologyInspectionResult(inspection: {
   if (inspection.domains.size > 0) {
     result += `## This class is the DOMAIN of the following properties\n`;
     result += `SPARQL Example: Get values for a '${inspection.label}' instance:\n`;
-    result += ` ?${inspection.label.toLowerCase().replace(/\s+/g, '')}Instance a <${inspection.uri}> .\n`;
-    result += ` ?${inspection.label.toLowerCase().replace(/\s+/g, '')}Instance <PROPERTY_FROM_LIST_BELOW> ?value .\n\n`;
+    result += ` ?${inspection.label
+      .toLowerCase()
+      .replace(/\s+/g, "")}Instance a <${inspection.uri}> .\n`;
+    result += ` ?${inspection.label
+      .toLowerCase()
+      .replace(/\s+/g, "")}Instance <PROPERTY_FROM_LIST_BELOW> ?value .\n\n`;
     for (const [uri, label] of inspection.domains) {
       result += `- <${uri}>: ${label}\n`;
     }
@@ -350,8 +372,12 @@ function formatOntologyInspectionResult(inspection: {
   if (inspection.ranges.size > 0) {
     result += `## This class is the RANGE of the following properties\n`;
     result += `SPARQL Example: Find entities that point to a '${inspection.label}'\n`;
-    result += ` ?${inspection.label.toLowerCase().replace(/\s+/g, '')}Instance a <${inspection.uri}> .\n`;
-    result += ` ?entity <PROPERTY_FROM_LIST_BELOW> ?${inspection.label.toLowerCase().replace(/\s+/g, '')}Instance .\n\n`;
+    result += ` ?${inspection.label
+      .toLowerCase()
+      .replace(/\s+/g, "")}Instance a <${inspection.uri}> .\n`;
+    result += ` ?entity <PROPERTY_FROM_LIST_BELOW> ?${inspection.label
+      .toLowerCase()
+      .replace(/\s+/g, "")}Instance .\n\n`;
     for (const [uri, label] of inspection.ranges) {
       result += `- <${uri}>: ${label}\n`;
     }
@@ -369,7 +395,7 @@ function formatOntologyInspectionResult(inspection: {
 export async function inspectOntology(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryService
+  queryService: QueryHelper
 ): Promise<string> {
   // First try to inspect as a class
   const classResult = await inspectClass(uri, sparqlEndpoint, queryService);
@@ -395,7 +421,7 @@ export async function inspectOntology(
 export async function inspect(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryService
+  queryService: QueryHelper
 ): Promise<string> {
   return await inspectOntology(uri, sparqlEndpoint, queryService);
 }

@@ -27,7 +27,7 @@ async function main() {
     sparqlEndpoint = args[1];
   }
 
-  const server = createServer(dbPath, sparqlEndpoint);
+  const server = await createServer(dbPath, sparqlEndpoint);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(`Server started successfully.`);
