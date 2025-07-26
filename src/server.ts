@@ -1,15 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { QueryHelper } from "./services/QueryHelper.js";
+import { QueryService } from "./services/QueryService.js";
 import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
 import { DatabaseHelper } from "./services/DatabaseHelper.js";
-import { ResourceResult } from "./types.js";
+import Logger from "./utils/logger.js";
 
 export async function createServer(
-  dbPath?: string,
-  sparqlEndpoint?: string
+  sparqlEndpoint: string,
+  dbPath?: string
 ): Promise<McpServer> {
   const server = new McpServer({
     name: "rdfGraph",
@@ -17,22 +17,24 @@ export async function createServer(
   });
 
   // Initialize services and helpers
-  const queryService = new QueryHelper();
+  const queryService = new QueryService();
   const embeddingService = new EmbeddingHelper();
-  const databaseService = new DatabaseHelper(dbPath);
+  const databaseHelper = new DatabaseHelper(dbPath);
   const searchService = new SearchService(
     queryService,
     embeddingService,
-    databaseService
+    databaseHelper
   );
   const inspectionService = new InspectionService(queryService);
 
-  // Initialize exploration on startup if SPARQL endpoint is provided
-  if (sparqlEndpoint) {
-    await searchService.exploreOntology(sparqlEndpoint, (processed, total) => {
-      console.log(`Processed ${processed} items${total ? ` of ${total}` : ""}`);
-    });
-  }
+  // Initialize exploration on startup
+  await searchService.exploreOntology(sparqlEndpoint, (processed, total) => {
+    Logger.info(
+      `Ontology exploration progress: ${processed} items${
+        total ? ` of ${total}` : ""
+      } processed`
+    );
+  });
 
   server.registerTool(
     "makeQuery",
@@ -49,9 +51,7 @@ export async function createServer(
     },
     async (request: { query: string }) => {
       const { query } = request;
-      const res = await queryService.executeQuery(query, [
-        sparqlEndpoint || "",
-      ]);
+      const res = await queryService.executeQuery(query, [sparqlEndpoint]);
 
       return {
         content: [
@@ -69,7 +69,7 @@ export async function createServer(
     "searchOntology",
     {
       description:
-        'Search for RDF ontological constructs (classes, properties, datatypes, etc.) by their purpose and meaning. Returns ontology URIs - use inspectURI for full details. Examples: "person birth date" (finds birthDate property), "location coordinates" (finds geographic properties), "organization class" (finds Organization class)',
+        'Search for RDF ontological constructs (classes, properties, datatypes, etc.). Returns ontology URIs - use inspectMetadata for full details. Examples: "person birth date" (finds birthDate property), "location coordinates" (finds geographic properties), "organization class" (finds Organization class)',
       inputSchema: {
         query: z.string().describe("The natural language search query"),
         limit: z
@@ -88,31 +88,11 @@ export async function createServer(
 
       const results = await searchService.searchOntology(
         query,
-        sparqlEndpoint || "",
+        sparqlEndpoint,
         limit
       );
 
-      if (results.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "No similar ontological constructs found. Try a different query or the ontological constructs you're looking for might not be in the knowledge graph.",
-            },
-          ],
-        };
-      }
-
-      let response = results
-        .map(
-          (res: any) =>
-            `**${res.label || res.uri}**\n   - URI: ${
-              res.uri
-            }\n   - Similarity: ${res.similarity}\n   - Description: ${
-              res.description || "No description available"
-            }\n   - Use inspectURI to see full details`
-        )
-        .join("\n\n");
+      const response = searchService.renderOntologyResult(results);
 
       return {
         content: [
@@ -130,7 +110,7 @@ export async function createServer(
     "searchAll",
     {
       description:
-        'Search for any RDF entities (resources, individuals, concepts) using syntactic full-text search. Examples: "Einstein" (finds Albert Einstein), "quantum*" (finds quantum mechanics, quantum physics)',
+        'Search for any RDF entities (data such as resources or individuals, as well as metadata (ontological constructs)) using syntactic full-text search. Examples: "Einstein" (finds Albert Einstein), "quantum*" (finds quantum mechanics, quantum physics)',
       inputSchema: {
         query: z
           .string()
@@ -156,10 +136,6 @@ export async function createServer(
         throw new Error("Query parameter is required");
       }
 
-      if (!sparqlEndpoint) {
-        throw new Error("SPARQL endpoint not configured");
-      }
-
       const results = await searchService.searchAll(
         query,
         sparqlEndpoint,
@@ -167,32 +143,7 @@ export async function createServer(
         offset
       );
 
-      if (results.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "No entities found matching your search query. Try different keywords or check if the entities exist in the knowledge graph.",
-            },
-          ],
-        };
-      }
-
-      let response = `Found ${results.length} entities:\n\n`;
-      results.forEach((resource: ResourceResult, index: number) => {
-        response += `${index + 1}. **${resource.label || resource.uri}**\n`;
-        response += `   - URI: ${resource.uri}\n`;
-        if (resource.label && resource.label !== resource.uri) {
-          response += `   - Label: ${resource.label}\n`;
-        }
-        if (resource.description) {
-          response += `   - Description: ${resource.description}\n`;
-        }
-        if (resource.type) {
-          response += `   - Type: ${resource.type}\n`;
-        }
-        response += `   - Use inspectURI to see full details\n\n`;
-      });
+      const response = searchService.renderResourceResult(results);
 
       return {
         content: [
@@ -205,17 +156,17 @@ export async function createServer(
     }
   );
 
-  // Register the inspect URI tool
+  // Register the inspect metadata tool
   server.registerTool(
-    "inspectURI",
+    "inspectMetadata",
     {
       description:
-        'Inspect any URI to see all its properties and values. Works with properties, classes, domains, ranges, etc. Examples: "http://dbpedia.org/ontology/birthDate" (inspect birthDate property)',
+        'Inspect any metadata URI (properties, classes, ...) to see all related properties, domains and ranges. Example: "http://dbpedia.org/ontology/birthDate" (inspect birthDate property and returns its domain and range), Example: "http://dbpedia.org/ontology/Person" (inspect Person class and returns its properties)',
       inputSchema: {
         uri: z
           .string()
           .describe(
-            "The URI to inspect - can be a resource, property, class, domain, range, or any other URI"
+            "The URI to inspect - can be a property, class, something used as domain/range, or any other metadata URI"
           ),
       },
     },
@@ -226,14 +177,10 @@ export async function createServer(
         throw new Error("URI parameter is required");
       }
 
-      if (!sparqlEndpoint) {
-        throw new Error("SPARQL endpoint not configured");
-      }
-
       try {
-        const result = await inspectionService.inspect(
+        const result = await inspectionService.inspectMetadata(
           uri,
-          sparqlEndpoint || ""
+          sparqlEndpoint
         );
 
         return {

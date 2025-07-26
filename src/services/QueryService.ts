@@ -1,7 +1,7 @@
 import { QueryEngine } from "@comunica/query-sparql";
 import { QueryStringContext } from "@comunica/types";
 
-export class QueryHelper {
+export class QueryService {
   private queryEngine: QueryEngine;
 
   constructor() {

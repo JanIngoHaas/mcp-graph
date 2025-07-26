@@ -6,60 +6,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `npm install` - Install dependencies
 - `npx tsc` - Compile TypeScript to JavaScript (outputs to dist/)
-- `node dist/index.js [dbPath] [sparqlEndpoint]` - Run the compiled MCP server with optional arguments
+- `node dist/index.js` - Run the compiled MCP server (requires environment variables)
 
 ## Server Startup
 
-**Basic in-memory setup:**
-```bash
-npx tsc && node dist/index.js
-```
+The server requires environment variables for configuration. Set these before running:
 
-**With persistent database:**
-```bash
-npx tsc && node dist/index.js ./data/ontology.db
-```
+**Linux/Mac:**
 
-**With SPARQL endpoint (triggers automatic exploration):**
 ```bash
-npx tsc && node dist/index.js https://dbpedia.org/sparql
-```
-
-**With both database path and SPARQL endpoint:**
-```bash
-npx tsc && node dist/index.js ./data/ontology.db https://dbpedia.org/sparql
-```
-
-**Using environment variables (Linux/Mac):**
-```bash
-export MCP_GRAPH_DB_PATH="./data/ontology.db"
+export DB_PATH="./data/ontology.db"
 export SPARQL_ENDPOINT="https://dbpedia.org/sparql"
 npx tsc && node dist/index.js
 ```
 
-**Using environment variables (Windows PowerShell):**
+**Windows PowerShell:**
+
 ```powershell
-$env:MCP_GRAPH_DB_PATH="./data/ontology.db"
+$env:DB_PATH="./data/ontology.db"
 $env:SPARQL_ENDPOINT="https://dbpedia.org/sparql"
 npx tsc; node dist/index.js
 ```
 
-**Using environment variables (Windows Command Prompt):**
+**Windows Command Prompt:**
+
 ```cmd
-set MCP_GRAPH_DB_PATH=./data/ontology.db
+set DB_PATH=./data/ontology.db
 set SPARQL_ENDPOINT=https://dbpedia.org/sparql
 npx tsc && node dist/index.js
 ```
 
-**Command Line Arguments:**
-- If one argument starts with "http" → treated as SPARQL endpoint
-- If one argument doesn't start with "http" → treated as database path  
-- If two arguments → first is database path, second is SPARQL endpoint
-
 ## Environment Variables
 
-- `MCP_GRAPH_DB_PATH` - Path for persistent database storage (default: `:memory:`)
+- `DB_PATH` - Path for persistent database storage (default: `:memory:`)
 - `SPARQL_ENDPOINT` - SPARQL endpoint URL for RDF data exploration
+- `LOG_FILE` - Path to log file (optional, logs to stderr if not set)
+- `LOG_LEVEL` - Logging level (optional, default: `info`)
 - `EMBEDDING_BATCH_SIZE` - Batch size for embedding processing (default: `32`)
 
 ## Architecture Overview
@@ -71,11 +53,13 @@ This is a Model Context Protocol (MCP) server that provides graph exploration ca
 1. **MCP Server** (`src/server.ts`): Creates and configures the MCP server with tool definitions and handlers
 2. **Main Entry Point** (`src/index.ts`): Initializes the server with stdio transport for MCP communication
 3. **Query Service** (`src/services/QueryService.ts`): Handles SPARQL query execution with rate limiting
-4. **Embedding Service** (`src/services/EmbeddingService.ts`): Uses HuggingFace Qwen3-Embedding-0.6B model for embeddings
-5. **Database Service** (`src/services/DatabaseService.ts`): Manages SQLite database with vector extensions
-6. **Search Service** (`src/services/SearchService.ts`): Combines query, embedding, and database services for semantic search
+4. **Embedding Helper** (`src/services/EmbeddingHelper.ts`): Uses HuggingFace Qwen3-Embedding-0.6B model for embeddings
+5. **Database Helper** (`src/services/DatabaseHelper.ts`): Manages SQLite database with vector extensions
+6. **Search Service** (`src/services/SearchService.ts`): Combines query, embedding, and database services for semantic search and ontology exploration
 7. **Inspection Service** (`src/services/InspectionService.ts`): Provides detailed URI inspection capabilities for classes and properties
-8. **Exploration Service** (`src/exploration.ts`): Core service that handles RDF graph exploration and analysis
+8. **Query Constraints** (`src/query_constraints.ts`): Defines SPARQL query filters and constraints
+9. **Types** (`src/types.ts`): TypeScript type definitions for the application
+10. **Utils** (`src/utils/`): Logging, caching, and formatting utilities
 
 ### Key Technologies
 
@@ -89,6 +73,7 @@ This is a Model Context Protocol (MCP) server that provides graph exploration ca
 ### Exploration Service Features
 
 The `ExplorationService` class provides:
+
 - **Property Discovery**: Queries RDF sources to discover properties with domain/range relationships
 - **Batch Processing**: Handles large datasets with configurable batch sizes and progress callbacks
 - **AI Integration**: Uses HuggingFace Qwen3-Embedding-0.6B model for semantic embeddings
@@ -124,4 +109,3 @@ Once running, the server provides these tools:
 - Uses "semantically similar documents" embedding instruction
 - First run with a new SPARQL endpoint will take time for ontology exploration and embedding generation
 - Database directories are created automatically if they don't exist
-

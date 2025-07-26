@@ -1,14 +1,17 @@
 import { getDisplayName } from "@modelcontextprotocol/sdk/shared/metadataUtils.js";
-import { getReadableName } from "../utils.js";
-import { QueryHelper } from "./QueryHelper.js";
+import { getReadableName } from "../utils/formatting.js";
+import { QueryService } from "./QueryService.js";
 
 export class InspectionService {
-  constructor(private queryService: QueryHelper) {
+  constructor(private queryService: QueryService) {
     this.queryService = queryService;
   }
 
-  public async inspect(uri: string, sparqlEndpoint: string): Promise<string> {
-    return await inspect(uri, sparqlEndpoint, this.queryService);
+  public async inspectMetadata(
+    uri: string,
+    sparqlEndpoint: string
+  ): Promise<string> {
+    return await inspectMetadata(uri, sparqlEndpoint, this.queryService);
   }
 }
 
@@ -20,7 +23,7 @@ b) URI is a class: rdfs:Class, owl:Class
 async function inspectProperty(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryHelper
+  queryService: QueryService
 ): Promise<{
   uri: string;
   label: string;
@@ -167,7 +170,7 @@ async function inspectProperty(
 async function inspectClass(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryHelper
+  queryService: QueryService
 ): Promise<{
   ranges: Map<string, string>;
   domains: Map<string, string>;
@@ -395,7 +398,7 @@ function formatOntologyInspectionResult(inspection: {
 export async function inspectOntology(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryHelper
+  queryService: QueryService
 ): Promise<string> {
   // First try to inspect as a class
   const classResult = await inspectClass(uri, sparqlEndpoint, queryService);
@@ -418,10 +421,10 @@ export async function inspectOntology(
   return `No class or property information found for URI: <${uri}>`;
 }
 
-export async function inspect(
+async function inspectMetadata(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryHelper
+  queryService: QueryService
 ): Promise<string> {
   return await inspectOntology(uri, sparqlEndpoint, queryService);
 }

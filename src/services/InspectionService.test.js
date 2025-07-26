@@ -12,7 +12,7 @@ beforeAll(() => {
 
 async function testInspectionClass() {
     const classUri = 'http://dbpedia.org/ontology/Person';
-    const result = await inspectionService.inspect(classUri, SPARQL_EP);
+    const result = await inspectionService.inspectMetadata(classUri, SPARQL_EP);
     console.log('Inspection Class Result:\n', result);
     expect(result).toBeDefined();
     expect(result.includes("secondLeader")).toBeTruthy();
@@ -25,7 +25,7 @@ async function testInspectionClass() {
 
 async function testInspectionProperty() {
     const propertyUri = 'http://dbpedia.org/ontology/birthPlace';
-    const result = await inspectionService.inspect(propertyUri, SPARQL_EP);
+    const result = await inspectionService.inspectMetadata(propertyUri, SPARQL_EP);
     console.log('Inspection Property Result:\n', result);
     expect(result).toBeDefined();
 }

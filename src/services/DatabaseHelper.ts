@@ -3,13 +3,15 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { OntologyItem } from "../types";
+import Logger from "../utils/logger.js";
+import { resolveCachePath } from "../utils/cache.js";
 
 export class DatabaseHelper {
   private _db: Database.Database | null = null;
   private _dbPath: string;
 
   constructor(dbPath: string = ":memory:") {
-    this._dbPath = dbPath;
+    this._dbPath = resolveCachePath(dbPath);
   }
 
   async getDatabase(): Promise<Database.Database> {
@@ -77,10 +79,8 @@ export class DatabaseHelper {
     sparqlEndpoint: string,
     embeddings: Array<Float32Array>
   ): Promise<void> {
-    console.error(`\n=== Saving Ontology to Database ===`);
-    console.error(
-      `Processing ${ontologyMap.size} ontological constructs for database storage...`
-    );
+    Logger.info('=== Saving Ontology to Database ===');
+    Logger.info(`Processing ${ontologyMap.size} ontological constructs for database storage...`);
 
     const db = await this.getDatabase();
     const insertStmt = db.prepare(`
@@ -88,7 +88,7 @@ export class DatabaseHelper {
       VALUES (?, ?, ?, ?, ?)
     `);
 
-    console.error("Saving to vector database...");
+    Logger.info('Saving to vector database...');
     // Save to database
     const transaction = db.transaction(() => {
       let i = 0;
@@ -106,9 +106,7 @@ export class DatabaseHelper {
     });
 
     transaction();
-    console.error(
-      `Successfully saved ${ontologyMap.size} ontological constructs with embeddings to database`
-    );
+    Logger.info(`Successfully saved ${ontologyMap.size} ontological constructs with embeddings to database`);
   }
 
   async searchOntology(

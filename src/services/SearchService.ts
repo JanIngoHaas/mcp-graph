@@ -1,16 +1,17 @@
-import { QueryHelper } from "./QueryHelper";
+import { QueryService } from "./QueryService";
 import { EmbeddingHelper } from "./EmbeddingHelper";
 import { DatabaseHelper } from "./DatabaseHelper";
 import { ResourceResult, OntologyItem } from "../types";
-import { getReadableName } from "../utils.js";
+import { getReadableName } from "../utils/formatting.js";
+import Logger from "../utils/logger.js";
 
 export class SearchService {
-  private queryService: QueryHelper;
+  private queryService: QueryService;
   private embeddingService: EmbeddingHelper;
   private databaseHelper: DatabaseHelper;
 
   constructor(
-    queryService: QueryHelper,
+    queryService: QueryService,
     embeddingService: EmbeddingHelper,
     databaseService: DatabaseHelper
   ) {
@@ -24,56 +25,52 @@ export class SearchService {
     onProgress?: (processed: number, total?: number) => void
   ): Promise<void> {
     if (!(await this.databaseHelper.needsExploration(source))) {
-      console.error("Ontology exploration already completed for this source.");
+      Logger.info("Ontology exploration already completed for this source.");
       return;
     }
 
     const ontologyMap = new Map<string, OntologyItem>();
     let processedTotal = 0;
 
-    console.error(`Starting ontology exploration with source: ${source}`);
-    try {
-      const bindings = await this.queryOntologyBatch(source);
+    Logger.info(`Starting ontology exploration with source: ${source}`);
+    const bindings = await this.queryOntologyAll(source);
 
-      console.error(
-        `Fetched ${bindings.length} ontological constructs from SPARQL endpoint`
-      );
+    Logger.info(
+      `Fetched ${bindings.length} ontological constructs from SPARQL endpoint`
+    );
 
-      for (const binding of bindings) {
-        const ontologyUri = binding.uri?.value;
-        const label = binding.label?.value;
-        const description = binding.description?.value;
+    for (const binding of bindings) {
+      const ontologyUri = binding.uri?.value;
+      const label = binding.label?.value;
+      const description = binding.description?.value;
 
-        if (!ontologyUri) continue;
+      if (!ontologyUri) continue;
 
-        if (!ontologyMap.has(ontologyUri)) {
-          ontologyMap.set(ontologyUri, {
-            uri: ontologyUri,
-            description,
-            label,
-          });
-        }
+      if (!ontologyMap.has(ontologyUri)) {
+        ontologyMap.set(ontologyUri, {
+          uri: ontologyUri,
+          description,
+          label,
+        });
       }
-
-      processedTotal += bindings.length;
-
-      if (onProgress) {
-        onProgress(processedTotal);
-      }
-    } catch (error) {
-      console.error(`Error querying SPARQL endpoint:`, error);
     }
 
-    console.error(`\n=== Ontology Exploration Complete ===`);
-    console.error(
+    processedTotal += bindings.length;
+
+    if (onProgress) {
+      onProgress(processedTotal);
+    }
+
+    Logger.info("=== Ontology Exploration Complete ===");
+    Logger.info(
       `Total unique ontological constructs discovered: ${ontologyMap.size}`
     );
-    console.error(`Total discovered: ${processedTotal}`);
+    Logger.info(`Total discovered: ${processedTotal}`);
 
     await this.saveOntologyWithEmbeddings(ontologyMap, source);
   }
 
-  private async queryOntologyBatch(source: string): Promise<any[]> {
+  private async queryOntologyAll(source: string): Promise<any[]> {
     let query = `
       PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
       PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -108,7 +105,9 @@ export class SearchService {
       FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/2002/07/owl#"))
       FILTER(!CONTAINS(STR(?uri), "http://www.openlinksw.com/schemas/"))
     }
-    ORDER BY ?uri ?type`;
+    LIMIT 100000
+    GROUP BY ?uri ?label ?description
+    ORDER BY ?uri ?label ?description`;
 
     return await this.queryService.executeQuery(query, [source]);
   }
@@ -174,11 +173,15 @@ export class SearchService {
       PREFIX dbo: <http://dbpedia.org/ontology/>
       PREFIX bif: <http://www.openlinksw.com/schemas/bif#>
       
-      SELECT DISTINCT ?resource ?label (COALESCE(?abstract, ?comment) AS ?description) WHERE {
+      # Pick longest label + longest description
+      SELECT ?resource (MAX(?label) AS ?label) (MAX(?description) AS ?description) WHERE {
         ?resource rdfs:label ?label .
+        FILTER(LANG(?label) = "en" || LANG(?label) = "")
         ?label bif:contains "'${searchQuery}'" .
         OPTIONAL { ?resource dbo:abstract ?abstract . FILTER(LANG(?abstract) = "en" || LANG(?abstract) = "") }
-        OPTIONAL { ?resource rdfs:comment ?comment . FILTER(LANG(?comment) = "en" || LANG(?comment) = "") }`;
+        OPTIONAL { ?resource rdfs:comment ?comment . FILTER(LANG(?comment) = "en" || LANG(?comment) = "") }
+        BIND(COALESCE(?abstract, ?comment, "") AS ?description)
+        `;
 
     // Add filters to exclude common schema types
     query += `
@@ -187,26 +190,71 @@ export class SearchService {
         FILTER(?resource != <http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>)
         FILTER(?resource != <http://www.w3.org/2000/01/rdf-schema#Class>)
       }
+      GROUP BY ?resource
       ORDER BY ?resource
       LIMIT ${limit}
       OFFSET ${offset}
     `;
 
-    try {
-      const results = await this.queryService.executeQuery(query, [
-        sparqlEndpoint,
-      ]);
+    const results = await this.queryService.executeQuery(query, [
+      sparqlEndpoint,
+    ]);
 
-      return results
-        .map((binding: any) => ({
-          uri: binding.resource?.value || "",
-          label: binding.label?.value,
-          description: binding.description?.value,
-        }))
-        .filter((result) => result.uri); // Filter out empty URIs
-    } catch (error) {
-      throw error;
+    return results
+      .map((binding: any) => ({
+        uri: binding.resource?.value || "",
+        label: binding.label?.value,
+        description: binding.description?.value,
+      }))
+      .filter((result) => result.uri); // Filter out empty URIs
+  }
+
+  public renderResourceResult(results: ResourceResult[]): string {
+    if (results.length === 0) {
+      return "No entities found matching your search query. Try different keywords or check if the entities exist in the knowledge graph.";
     }
+
+    let response = `Found ${results.length} entities:\n\n`;
+    results.forEach((resource: ResourceResult, index: number) => {
+      response += `${index + 1}. **${resource.label || resource.uri}**\n`;
+      response += `   - URI: ${resource.uri}\n`;
+      if (resource.label && resource.label !== resource.uri) {
+        response += `   - Label: ${resource.label}\n`;
+      }
+      if (resource.description) {
+        response += `   - Description: ${resource.description}\n`;
+      }
+      if (resource.type) {
+        response += `   - Type: ${resource.type}\n`;
+      }
+      response += `   - Use inspectURI to see full details\n\n`;
+    });
+
+    return response;
+  }
+
+  public renderOntologyResult(
+    results: Array<{
+      uri: string;
+      label: string;
+      description: string;
+      similarity: number;
+    }>
+  ): string {
+    if (results.length === 0) {
+      return "No similar ontological constructs found. Try a different query or the ontological constructs you're looking for might not be in the knowledge graph.";
+    }
+
+    return results
+      .map(
+        (res: any) =>
+          `**${res.label || res.uri}**\n   - URI: ${
+            res.uri
+          }\n   - Similarity: ${res.similarity}\n   - Description: ${
+            res.description || "No description available"
+          }\n   - Use inspectURI to see full details`
+      )
+      .join("\n\n");
   }
 
   private async saveOntologyWithEmbeddings(
@@ -216,7 +264,7 @@ export class SearchService {
     const ontologyTexts: string[] = [];
     const ontologyInfos: OntologyItem[] = [];
 
-    console.error("Preparing ontology texts for embedding...");
+    Logger.info("Preparing ontology texts for embedding...");
     // Prepare ontology texts for embedding (description || label)
     for (const onto of ontologyMap.values()) {
       const embeddingText =
@@ -227,7 +275,7 @@ export class SearchService {
       }
     }
 
-    console.error(
+    Logger.info(
       `Prepared ${ontologyTexts.length} ontological constructs for embedding`
     );
 
@@ -253,7 +301,7 @@ export class SearchService {
           processedCount += batchTexts.length;
 
           if (processedCount === ontologyInfos.length) {
-            console.error(
+            Logger.info(
               `All ${ontologyInfos.length} ontological constructs saved with embeddings`
             );
             // Record the endpoint that was used for this exploration
@@ -262,7 +310,7 @@ export class SearchService {
         }
       );
     } else {
-      console.error("No ontological constructs to save to database");
+      Logger.warn("No ontological constructs to save to database");
     }
   }
 }

@@ -12,17 +12,17 @@ export function formatIdentifier(identifier: string): string {
 
   const parts = uriSegment
     .split(/[_\-\.\s]/)
-    .map(s => s.toLowerCase())
-    .filter(s => s.length > 0);
+    .map((s) => s.toLowerCase())
+    .filter((s) => s.length > 0);
 
   if (parts.length === 0) return identifier;
 
   const first = parts[0];
-  const rest = parts.slice(1).map(part =>
-    part.charAt(0).toUpperCase() + part.slice(1)
-  );
+  const rest = parts
+    .slice(1)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1));
 
-  return first + rest.join('');
+  return first + rest.join("");
 }
 
 /**

@@ -27,9 +27,9 @@ async function testSearchOntology() {
 
 async function testSearchAll() {
     const result = await searchService.searchAll("Einstein", SPARQL_EP);
-    console.log('Search All Result:\n', result);
     expect(result).toBeDefined();
     expect(result.length).toBeGreaterThan(0);
+    console.log("Results Rendered:\n", searchService.renderResourceResult(result));
 };
 
 test('Search All', testSearchAll, 300000);

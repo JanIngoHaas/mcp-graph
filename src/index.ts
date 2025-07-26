@@ -2,38 +2,41 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "./server.js";
+import Logger from "./utils/logger.js";
 import path from "path";
 import os from "os";
 
 async function main() {
-  console.error(`Starting MCP Graph server...`);
+  // Get configuration from environment variables only
+  const dbPath: string = process.env.DB_PATH || ":cache:";
+  const sparqlEndpoint: string | undefined = process.env.SPARQL_ENDPOINT;
+  const logFile: string | undefined = process.env.LOG_FILE;
 
-  const args = process.argv.slice(2);
-
-  // Default to memory, allow override via environment or args
-  let dbPath: string | undefined = process.env.MCP_GRAPH_DB_PATH;
-  let sparqlEndpoint: string | undefined = process.env.SPARQL_ENDPOINT;
-
-  // Parse arguments in format: [dbPath] [sparqlEndpoint]
-  // If only one argument is provided and it starts with http, treat it as SPARQL endpoint
-  if (args.length === 1) {
-    if (args[0].startsWith("http")) {
-      sparqlEndpoint = args[0];
-    } else {
-      dbPath = args[0];
-    }
-  } else if (args.length >= 2) {
-    dbPath = args[0];
-    sparqlEndpoint = args[1];
+  // Validate sparqlEndpoint is provided
+  if (!sparqlEndpoint) {
+    throw new Error(
+      "SPARQL endpoint is not defined - set SPARQL_ENDPOINT environment variable."
+    );
   }
 
-  const server = await createServer(dbPath, sparqlEndpoint);
+  // Initialize logger - logs to stderr if LOG_FILE not set, to file if set
+  Logger.initialize({
+    logFile,
+    logLevel: process.env.LOG_LEVEL || "info",
+    enableConsole: process.env.NODE_ENV === "development",
+  });
+
+  Logger.info("Starting MCP Graph server...", { dbPath, sparqlEndpoint });
+
+  const server = await createServer(sparqlEndpoint, dbPath);
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`Server started successfully.`);
+  Logger.info("Server started successfully.");
 }
 
 main().catch((error) => {
-  console.error("Server error:", error);
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorStack = error instanceof Error ? error.stack : undefined;
+  Logger.error("Server error", { error: errorMessage, stack: errorStack });
   process.exit(1);
 });
