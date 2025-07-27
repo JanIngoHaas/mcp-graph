@@ -7,6 +7,6 @@ export interface ResourceResult {
 
 export interface OntologyItem {
   uri: string;
-  label?: string;
-  description?: string;
+  label: string;
+  description: string;
 }

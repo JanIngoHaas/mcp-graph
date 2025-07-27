@@ -20,6 +20,21 @@ function getFormattedLabel(label: string): string {
   return label;
 }
 
+/**
+ * Generates smart property descriptions from domain/range relationships
+ */
+function generatePropertyDescription(
+  propertyLabel: string,
+  domainLabel: string,
+  rangeLabel: string
+): string {
+  const formattedProperty = getFormattedLabel(propertyLabel);
+  const formattedDomain = getFormattedLabel(domainLabel);
+  const formattedRange = getFormattedLabel(rangeLabel);
+
+  return `[${formattedDomain}]--[${formattedProperty}]-->[${formattedRange}]`;
+}
+
 export class SearchService {
   private queryService: QueryService;
   private embeddingService: EmbeddingHelper;
@@ -44,30 +59,39 @@ export class SearchService {
       return;
     }
 
-    const ontologyMap = new Map<string, OntologyItem>();
-    let processedTotal = 0;
-
     Logger.info(`Starting ontology exploration with source: ${source}`);
-    const bindings = await this.queryOntologyAll(source);
 
-    Logger.info(
-      `Fetched ${bindings.length} ontological constructs from SPARQL endpoint`
-    );
+    // Process classes and properties separately
+    await this.processClasses(source, onProgress);
+    await this.processProperties(source, onProgress);
 
-    for (const binding of bindings) {
+    // Record the endpoint that was used for this exploration
+    await this.databaseHelper.recordEndpoint(source);
+
+    Logger.info("=== Ontology Exploration Complete ===");
+  }
+
+  private async processClasses(
+    source: string,
+    onProgress?: (processed: number, total?: number) => void
+  ): Promise<void> {
+    Logger.info("Processing classes...");
+    const classBindings = await this.queryOntologyAllClasses(source);
+    Logger.info(`Fetched ${classBindings.length} classes from SPARQL endpoint`);
+
+    const classMap = new Map<string, OntologyItem>();
+
+    for (const binding of classBindings) {
       const ontologyUri = binding.uri?.value;
       const rawLabel = binding.label?.value;
       const description = binding.description?.value;
 
       if (!ontologyUri) continue;
 
-      // Use getFormattedLabel to handle URI vs real labels
-      const label = rawLabel
-        ? getFormattedLabel(rawLabel)
-        : getReadableName(ontologyUri);
+      const label = getFormattedLabel(rawLabel);
 
-      if (!ontologyMap.has(ontologyUri)) {
-        ontologyMap.set(ontologyUri, {
+      if (!classMap.has(ontologyUri)) {
+        classMap.set(ontologyUri, {
           uri: ontologyUri,
           description,
           label,
@@ -75,19 +99,58 @@ export class SearchService {
       }
     }
 
-    processedTotal += bindings.length;
-
     if (onProgress) {
-      onProgress(processedTotal);
+      onProgress(classBindings.length);
     }
 
-    Logger.info("=== Ontology Exploration Complete ===");
-    Logger.info(
-      `Total unique ontological constructs discovered: ${ontologyMap.size}`
-    );
-    Logger.info(`Total discovered: ${processedTotal}`);
+    Logger.info(`Total unique classes discovered: ${classMap.size}`);
+    await this.saveClassesWithEmbeddings(classMap, source);
+  }
 
-    await this.saveOntologyWithEmbeddings(ontologyMap, source);
+  private async processProperties(
+    source: string,
+    onProgress?: (processed: number, total?: number) => void
+  ): Promise<void> {
+    Logger.info("Processing properties...");
+    const propertyBindings = await this.queryOntologyAllProperties(source);
+    Logger.info(
+      `Fetched ${propertyBindings.length} properties from SPARQL endpoint`
+    );
+
+    const propertyMap = new Map<string, OntologyItem>();
+
+    for (const binding of propertyBindings) {
+      const ontologyUri = binding.uri?.value;
+      const rawLabel = binding.label?.value;
+      const domainLabel = binding.domainLabel?.value;
+      const rangeLabel = binding.rangeLabel?.value;
+
+      if (!ontologyUri || !domainLabel || !rangeLabel) continue;
+
+      const label = getFormattedLabel(rawLabel);
+
+      // Generate smart property description
+      const smartDescription = generatePropertyDescription(
+        label,
+        domainLabel,
+        rangeLabel
+      );
+
+      if (!propertyMap.has(ontologyUri)) {
+        propertyMap.set(ontologyUri, {
+          uri: ontologyUri,
+          description: smartDescription,
+          label,
+        });
+      }
+    }
+
+    if (onProgress) {
+      onProgress(propertyBindings.length);
+    }
+
+    Logger.info(`Total unique properties discovered: ${propertyMap.size}`);
+    await this.savePropertiesWithEmbeddings(propertyMap, source);
   }
 
   private async queryOntologyAllClasses(source: string): Promise<any[]> {
@@ -122,6 +185,13 @@ export class SearchService {
       
       BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle, ?dctTitle, ?foafName, STR(?uri)) AS ?label)
       BIND(COALESCE(?dboAbstract, ?rdfsComment, ?skosDefinition, ?dcDescription, ?dctDescription, ?skosNote) AS ?description)
+
+      # Exclude meta-schemas and structural vocabularies
+      FILTER(!CONTAINS(STR(?uri), "http://www.openlinksw.com/schemas/"))
+      FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/2002/07/owl#"))
+      FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/1999/02/22-rdf-syntax-ns#"))
+      FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/2000/01/rdf-schema#"))
+
       }`;
 
     return await this.queryService.executeQuery(query, [source]);
@@ -137,48 +207,63 @@ export class SearchService {
     PREFIX dct: <http://purl.org/dc/terms/>
     PREFIX dbo: <http://dbpedia.org/ontology/>
     PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-    SELECT DISTINCT ?uri ?label ?description
+    SELECT DISTINCT ?uri ?label ?domain ?range ?domainLabel ?rangeLabel
     WHERE {
       ?uri rdf:type ?propType .
       FILTER(?propType IN (rdf:Property, owl:ObjectProperty, owl:DatatypeProperty, owl:AnnotationProperty))
       
-      # Multiple label options
+      # Require domain and range - filter out useless properties
+      ?uri rdfs:domain ?domain .
+      ?uri rdfs:range ?range .
+      
+      # Property label options
       OPTIONAL { ?uri rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
       OPTIONAL { ?uri skos:prefLabel ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
       OPTIONAL { ?uri dc:title ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
       OPTIONAL { ?uri dct:title ?dctTitle . FILTER(LANG(?dctTitle) = "en" || LANG(?dctTitle) = "") }
       OPTIONAL { ?uri foaf:name ?foafName . FILTER(LANG(?foafName) = "en" || LANG(?foafName) = "") }
       
-      # Multiple description options
-      OPTIONAL { ?uri dbo:abstract ?dboAbstract . FILTER(LANG(?dboAbstract) = "en" || LANG(?dboAbstract) = "") }
-      OPTIONAL { ?uri rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
-      OPTIONAL { ?uri skos:definition ?skosDefinition . FILTER(LANG(?skosDefinition) = "en" || LANG(?skosDefinition) = "") }
-      OPTIONAL { ?uri dc:description ?dcDescription . FILTER(LANG(?dcDescription) = "en" || LANG(?dcDescription) = "") }
-      OPTIONAL { ?uri dct:description ?dctDescription . FILTER(LANG(?dctDescription) = "en" || LANG(?dctDescription) = "") }
-      OPTIONAL { ?uri skos:note ?skosNote . FILTER(LANG(?skosNote) = "en" || LANG(?skosNote) = "") }
+      # Domain label options
+      OPTIONAL { ?domain rdfs:label ?domainRdfsLabel . FILTER(LANG(?domainRdfsLabel) = "en" || LANG(?domainRdfsLabel) = "") }
+      OPTIONAL { ?domain skos:prefLabel ?domainSkosLabel . FILTER(LANG(?domainSkosLabel) = "en" || LANG(?domainSkosLabel) = "") }
+      OPTIONAL { ?domain dc:title ?domainDcTitle . FILTER(LANG(?domainDcTitle) = "en" || LANG(?domainDcTitle) = "") }
+      
+      # Range label options
+      OPTIONAL { ?range rdfs:label ?rangeRdfsLabel . FILTER(LANG(?rangeRdfsLabel) = "en" || LANG(?rangeRdfsLabel) = "") }
+      OPTIONAL { ?range skos:prefLabel ?rangeSkosLabel . FILTER(LANG(?rangeSkosLabel) = "en" || LANG(?rangeSkosLabel) = "") }
+      OPTIONAL { ?range dc:title ?rangeDcTitle . FILTER(LANG(?rangeDcTitle) = "en" || LANG(?rangeDcTitle) = "") }
       
       BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle, ?dctTitle, ?foafName, STR(?uri)) AS ?label)
-      BIND(COALESCE(?dboAbstract, ?rdfsComment, ?skosDefinition, ?dcDescription, ?dctDescription, ?skosNote) AS ?description)
+      BIND(COALESCE(?domainRdfsLabel, ?domainSkosLabel, ?domainDcTitle, STR(?domain)) AS ?domainLabel)
+      BIND(COALESCE(?rangeRdfsLabel, ?rangeSkosLabel, ?rangeDcTitle, STR(?range)) AS ?rangeLabel)
+
+      # Exclude meta-schemas and structural vocabularies
+      FILTER(!CONTAINS(STR(?uri), "http://www.openlinksw.com/schemas/"))
+      FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/2002/07/owl#"))
+      FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/1999/02/22-rdf-syntax-ns#"))
+      FILTER(!CONTAINS(STR(?uri), "http://www.w3.org/2000/01/rdf-schema#"))
+      
+      # Same for domain and range
+      FILTER(!CONTAINS(STR(?domain), "http://www.openlinksw.com/schemas/"))
+      FILTER(!CONTAINS(STR(?domain), "http://www.w3.org/2002/07/owl#"))
+      FILTER(!CONTAINS(STR(?domain), "http://www.w3.org/1999/02/22-rdf-syntax-ns#"))
+      FILTER(!CONTAINS(STR(?domain), "http://www.w3.org/2000/01/rdf-schema#"))
+      
+      FILTER(!CONTAINS(STR(?range), "http://www.openlinksw.com/schemas/"))
+      FILTER(!CONTAINS(STR(?range), "http://www.w3.org/2002/07/owl#"))
+      FILTER(!CONTAINS(STR(?range), "http://www.w3.org/1999/02/22-rdf-syntax-ns#"))
+      FILTER(!CONTAINS(STR(?range), "http://www.w3.org/2000/01/rdf-schema#"))
     }
   `;
 
     return await this.queryService.executeQuery(query, [source]);
   }
 
-  private async queryOntologyAll(source: string): Promise<any[]> {
-    // First, query all classes
-    const classBindings = await this.queryOntologyAllClasses(source);
-
-    // Then, query all properties
-    const propertyBindings = await this.queryOntologyAllProperties(source);
-
-    return [...classBindings, ...propertyBindings];
-  }
-
   public async searchOntology(
     userQuery: string,
-    sparqlEndpoint: string,
-    limit: number = 10
+    searchType: "class" | "property",
+    limit: number = 10,
+    sparqlEndpoint: string
   ): Promise<
     Array<{
       uri: string;
@@ -187,10 +272,6 @@ export class SearchService {
       similarity: number;
     }>
   > {
-    if (!sparqlEndpoint) {
-      throw new Error("SPARQL endpoint not configured for search");
-    }
-
     // Generate embedding for user query
     let queryVector: Float32Array | undefined;
     await this.embeddingService.embed(
@@ -198,6 +279,9 @@ export class SearchService {
       true,
       async (batchTexts, embeddings) => {
         queryVector = embeddings[0];
+        Logger.info(
+          `Generated embeddings for user query: ${batchTexts}: ${embeddings}`
+        );
       }
     );
 
@@ -205,15 +289,16 @@ export class SearchService {
       throw new Error("Failed to generate query embedding");
     }
 
-    const results = await this.databaseHelper.searchOntology(
+    const results = await this.databaseHelper.searchOntologyWithVector(
       queryVector,
+      searchType,
       sparqlEndpoint,
       limit
     );
 
     return results.map((row: any) => ({
       uri: row.uri,
-      label: row.label || getReadableName(row.uri),
+      label: getFormattedLabel(row.label),
       description: row.description || "No description available",
       similarity: row.similarity,
     }));
@@ -344,60 +429,100 @@ export class SearchService {
       .join("\n\n");
   }
 
-  private async saveOntologyWithEmbeddings(
-    ontologyMap: Map<string, OntologyItem>,
+  private async saveClassesWithEmbeddings(
+    classMap: Map<string, OntologyItem>,
     sparqlEndpoint: string
   ): Promise<void> {
-    const ontologyTexts: string[] = [];
-    const ontologyInfos: OntologyItem[] = [];
+    const classTexts: string[] = [];
+    const classInfos: OntologyItem[] = [];
 
-    Logger.info("Preparing ontology texts for embedding...");
-    // Prepare ontology texts for embedding (description || label)
-    for (const onto of ontologyMap.values()) {
+    Logger.info("Preparing class texts for embedding...");
+    for (const classItem of classMap.values()) {
       const embeddingText =
-        "URI: " + onto.uri + "\n" + (onto.description || onto.label);
+        classItem.description ||
+        classItem.label ||
+        getReadableName(classItem.uri);
       if (embeddingText) {
-        ontologyTexts.push(embeddingText);
-        ontologyInfos.push(onto);
+        classTexts.push(embeddingText);
+        classInfos.push(classItem);
       }
     }
 
-    Logger.info(
-      `Prepared ${ontologyTexts.length} ontological constructs for embedding`
-    );
+    Logger.info(`Prepared ${classTexts.length} classes for embedding`);
 
-    // Generate embeddings in batches but collect all results before saving
-    if (ontologyTexts.length > 0) {
+    if (classTexts.length > 0) {
       const allEmbeddings: Float32Array[] = [];
       let processedCount = 0;
-      
+
       await this.embeddingService.embed(
-        ontologyTexts,
+        classTexts,
         false,
         async (batchTexts, embeddings) => {
-          // Collect embeddings instead of saving immediately
           allEmbeddings.push(...embeddings);
           processedCount += batchTexts.length;
-          
-          Logger.info(`Collected embeddings for ${processedCount}/${ontologyTexts.length} items`);
+          Logger.info(
+            `Collected embeddings for ${processedCount}/${classTexts.length} classes`
+          );
         }
       );
 
-      // Save all embeddings in one transaction
-      Logger.info("Saving all embeddings to database in single transaction...");
-      await this.databaseHelper.saveOntologyToDatabase(
-        ontologyMap,
+      Logger.info(
+        "Saving all class embeddings to database in single transaction..."
+      );
+      await this.databaseHelper.saveClassesToDatabase(
+        classMap,
         sparqlEndpoint,
         allEmbeddings
       );
+    } else {
+      Logger.warn("No classes to save to database");
+    }
+  }
+
+  private async savePropertiesWithEmbeddings(
+    propertyMap: Map<string, OntologyItem>,
+    sparqlEndpoint: string
+  ): Promise<void> {
+    const propertyTexts: string[] = [];
+    const propertyInfos: OntologyItem[] = [];
+
+    Logger.info("Preparing property texts for embedding...");
+    for (const propertyItem of propertyMap.values()) {
+      // Use the smart-generated description for properties
+      const embeddingText = propertyItem.description;
+
+      propertyTexts.push(embeddingText);
+      propertyInfos.push(propertyItem);
+    }
+
+    Logger.info(`Prepared ${propertyTexts.length} properties for embedding`);
+
+    if (propertyTexts.length > 0) {
+      const allEmbeddings: Float32Array[] = [];
+      let processedCount = 0;
+
+      await this.embeddingService.embed(
+        propertyTexts,
+        false,
+        async (batchTexts, embeddings) => {
+          allEmbeddings.push(...embeddings);
+          processedCount += batchTexts.length;
+          Logger.info(
+            `Collected embeddings for ${processedCount}/${propertyTexts.length} properties`
+          );
+        }
+      );
 
       Logger.info(
-        `All ${ontologyInfos.length} ontological constructs saved with embeddings`
+        "Saving all property embeddings to database in single transaction..."
       );
-      // Record the endpoint that was used for this exploration
-      await this.databaseHelper.recordEndpoint(sparqlEndpoint);
+      await this.databaseHelper.savePropertiesToDatabase(
+        propertyMap,
+        sparqlEndpoint,
+        allEmbeddings
+      );
     } else {
-      Logger.warn("No ontological constructs to save to database");
+      Logger.warn("No properties to save to database");
     }
   }
 }

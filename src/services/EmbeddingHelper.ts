@@ -45,6 +45,10 @@ export class EmbeddingHelper {
       const originalBatch = text.slice(i, i + batchSize);
 
       Logger.info(
+        `Processing the following texts for embeddings:\n${batch.join("\n")}`
+      );
+
+      Logger.info(
         `Processing embedding batch ${
           Math.floor(i / batchSize) + 1
         }/${Math.ceil(formattedTexts.length / batchSize)} (${
@@ -67,9 +71,8 @@ export class EmbeddingHelper {
         return new Float32Array(embeddingArray);
       });
 
-      result.dispose();
-      // Call the callback to store embeddings immediately
       await onBatchComplete(originalBatch, batchEmbeddings);
+      result.dispose();
     }
   }
 }

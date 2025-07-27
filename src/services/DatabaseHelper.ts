@@ -40,7 +40,15 @@ export class DatabaseHelper {
         indexed_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
       
-      CREATE VIRTUAL TABLE IF NOT EXISTS ontology_index USING vec0(
+      CREATE VIRTUAL TABLE IF NOT EXISTS class_index USING vec0(
+        ontology_uri TEXT PRIMARY KEY,
+        ontology_label TEXT NOT NULL,
+        ontology_description TEXT,
+        sparql_endpoint TEXT NOT NULL,
+        embedding FLOAT[1024]
+      );
+      
+      CREATE VIRTUAL TABLE IF NOT EXISTS property_index USING vec0(
         ontology_uri TEXT PRIMARY KEY,
         ontology_label TEXT NOT NULL,
         ontology_description TEXT,
@@ -54,13 +62,20 @@ export class DatabaseHelper {
     if (!sparqlEndpoint) return false;
 
     const db = await this.getDatabase();
-    const stmt = db.prepare(
-      "SELECT COUNT(*) as count FROM ontology_index WHERE sparql_endpoint = ?"
+    const classStmt = db.prepare(
+      "SELECT COUNT(*) as count FROM class_index WHERE sparql_endpoint = ?"
     );
-    const result = stmt.get(sparqlEndpoint) as { count: number };
+    const propertyStmt = db.prepare(
+      "SELECT COUNT(*) as count FROM property_index WHERE sparql_endpoint = ?"
+    );
 
-    // Need exploration if no data exists for this endpoint
-    return result.count === 0;
+    const classResult = classStmt.get(sparqlEndpoint) as { count: number };
+    const propertyResult = propertyStmt.get(sparqlEndpoint) as {
+      count: number;
+    };
+
+    // Need exploration if no data exists for this endpoint in either table
+    return classResult.count === 0 && propertyResult.count === 0;
   }
 
   async recordEndpoint(sparqlEndpoint: string): Promise<void> {
@@ -74,31 +89,28 @@ export class DatabaseHelper {
     stmt.run(sparqlEndpoint);
   }
 
-  async saveOntologyToDatabase(
-    ontologyMap: Map<string, OntologyItem>,
+  async saveClassesToDatabase(
+    classMap: Map<string, OntologyItem>,
     sparqlEndpoint: string,
     embeddings: Array<Float32Array>
   ): Promise<void> {
-    Logger.info('=== Saving Ontology to Database ===');
-    Logger.info(`Processing ${ontologyMap.size} ontological constructs for database storage...`);
+    Logger.info(`Saving ${classMap.size} classes to database...`);
 
     const db = await this.getDatabase();
     const insertStmt = db.prepare(`
-      INSERT OR REPLACE INTO ontology_index (ontology_uri, ontology_label, ontology_description, sparql_endpoint, embedding)
+      INSERT OR REPLACE INTO class_index (ontology_uri, ontology_label, ontology_description, sparql_endpoint, embedding)
       VALUES (?, ?, ?, ?, ?)
     `);
 
-    Logger.info('Saving to vector database...');
-    // Save to database
     const transaction = db.transaction(() => {
       let i = 0;
-      for (const onto of ontologyMap.values()) {
+      for (const classItem of classMap.values()) {
         const embedding = embeddings[i++];
 
         insertStmt.run(
-          onto.uri,
-          onto.label || "",
-          onto.description || "",
+          classItem.uri,
+          classItem.label || "",
+          classItem.description || "",
           sparqlEndpoint,
           JSON.stringify(Array.from(embedding))
         );
@@ -106,11 +118,48 @@ export class DatabaseHelper {
     });
 
     transaction();
-    Logger.info(`Successfully saved ${ontologyMap.size} ontological constructs with embeddings to database`);
+    Logger.info(
+      `Successfully saved ${classMap.size} classes with embeddings to database`
+    );
   }
 
-  async searchOntology(
+  async savePropertiesToDatabase(
+    propertyMap: Map<string, OntologyItem>,
+    sparqlEndpoint: string,
+    embeddings: Array<Float32Array>
+  ): Promise<void> {
+    Logger.info(`Saving ${propertyMap.size} properties to database...`);
+
+    const db = await this.getDatabase();
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO property_index (ontology_uri, ontology_label, ontology_description, sparql_endpoint, embedding)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const transaction = db.transaction(() => {
+      let i = 0;
+      for (const propertyItem of propertyMap.values()) {
+        const embedding = embeddings[i++];
+
+        insertStmt.run(
+          propertyItem.uri,
+          propertyItem.label || "",
+          propertyItem.description || "",
+          sparqlEndpoint,
+          JSON.stringify(Array.from(embedding))
+        );
+      }
+    });
+
+    transaction();
+    Logger.info(
+      `Successfully saved ${propertyMap.size} properties with embeddings to database`
+    );
+  }
+
+  private async searchGeneric(
     queryVector: Float32Array,
+    tableName: string,
     sparqlEndpoint: string,
     limit: number = 10
   ): Promise<
@@ -128,29 +177,49 @@ export class DatabaseHelper {
         ontology_uri,
         ontology_label,
         ontology_description,
-        vec_distance_cosine(embedding, ?) as distance
-      FROM ontology_index
-      WHERE sparql_endpoint = ?
+        distance
+      FROM ${tableName}
+      WHERE embedding MATCH ? AND sparql_endpoint = ?
       ORDER BY distance
       LIMIT ?
     `);
 
-    const results = searchStmt.all(
-      JSON.stringify(Array.from(queryVector)),
-      sparqlEndpoint,
-      limit
-    );
+    const queryVectorStr = JSON.stringify(Array.from(queryVector));
+
+    const results = searchStmt.all(queryVectorStr, sparqlEndpoint, limit);
 
     return results.map((row: any) => {
-      // vec_distance_cosine returns cosine distance in [0,1] range
-      // Convert to cosine similarity: similarity = 1 - distance
+      // sqlite-vec MATCH returns cosine distance, convert to similarity
       const similarity = Math.max(0, Math.min(1, 1 - row.distance));
       return {
         uri: row.ontology_uri,
         label: row.ontology_label || "",
         description: row.ontology_description || "",
-        similarity: Math.round(similarity * 100) / 100,
+        similarity,
       };
     });
+  }
+
+  async searchOntologyWithVector(
+    queryVector: Float32Array,
+    searchType: "class" | "property",
+    sparqlEndpoint: string,
+    limit: number = 10
+  ): Promise<
+    Array<{
+      uri: string;
+      label: string;
+      description: string;
+      similarity: number;
+    }>
+  > {
+    let tableName = "";
+    if (searchType === "class") {
+      tableName = "class_index";
+    } else if (searchType === "property") {
+      tableName = "property_index";
+    }
+
+    return this.searchGeneric(queryVector, tableName, sparqlEndpoint, limit);
   }
 }

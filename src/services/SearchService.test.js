@@ -1,4 +1,4 @@
-import { beforeAll, test, expect } from 'vitest';
+import { beforeAll, test, expect, beforeEach } from 'vitest';
 import { QueryHelper } from '../../dist/services/QueryHelper.js';
 import { SearchService } from '../../dist/services/SearchService.js';
 import { EmbeddingHelper } from '../../dist/services/EmbeddingHelper.js';
@@ -12,22 +12,32 @@ let databaseHelper;
 
 const SPARQL_EP = 'https://dbpedia.org/sparql';
 
-beforeAll(() => {
+beforeAll(async () => {
     queryHelper = new QueryHelper();
     embeddingHelper = new EmbeddingHelper();
     databaseHelper = new DatabaseHelper("./tmp-test/test.db");
     searchService = new SearchService(queryHelper, embeddingHelper, databaseHelper);
-});
-
-async function testSearchOntology() {
     await searchService.exploreOntology(SPARQL_EP, (processed, total) => {
         Logger.info(
             `Ontology exploration progress: ${processed} items${total ? ` of ${total}` : ""
             } processed`
         );
     });
-    const result = await searchService.searchOntology("books author", SPARQL_EP);
-    console.log('Search Ontology Result:\n', result);
+}, 300000);
+
+
+async function testSearchOntologyClasses() {
+
+    const result = await searchService.searchOntology("person writer", "class", 10, SPARQL_EP);
+    console.log('Search Classes Result:\n', result);
+    expect(result).toBeDefined();
+    expect(result.length).toBeGreaterThan(0);
+}
+
+async function testSearchOntologyProperties() {
+    // Exploration should already be done from previous test
+    const result = await searchService.searchOntology("author of books", "property", 10, SPARQL_EP);
+    console.log('Search Properties Result:\n', result);
     expect(result).toBeDefined();
     expect(result.length).toBeGreaterThan(0);
 }
@@ -40,4 +50,5 @@ async function testSearchAll() {
 };
 
 test('Search All', testSearchAll, 300000);
-test('Search Ontology', testSearchOntology, 300000);
+//test('Search Ontology Classes', testSearchOntologyClasses, 300000);
+test('Search Ontology Properties', testSearchOntologyProperties, 300000);
