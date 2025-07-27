@@ -33,7 +33,7 @@ export class EmbeddingHelper {
     // Format text with instruction if provided (instruction-aware embeddings)
     const formattedTexts = text.map((t) => {
       if (instruction) {
-        return `Instruct: Given a keyword-like query, return the most relevant passages most similar to the question.\nQuery: ${t}`;
+        return `Instruct: Given a web search query, retrieve semantically similar class and property definitions from an RDF knowledge graph.\nQuery: ${t}`;
       }
       return t;
     });

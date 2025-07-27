@@ -5,6 +5,21 @@ import { ResourceResult, OntologyItem } from "../types";
 import { getReadableName } from "../utils/formatting.js";
 import Logger from "../utils/logger.js";
 
+/**
+ * Checks if a label appears to be a URI (starts with http/https)
+ */
+function isUriLabel(label: string): boolean {
+  return label.startsWith("http://") || label.startsWith("https://");
+}
+
+/**
+ * Gets a properly formatted label, using getReadableName for URI labels
+ */
+function getFormattedLabel(label: string): string {
+  if (isUriLabel(label)) return getReadableName(label);
+  return label;
+}
+
 export class SearchService {
   private queryService: QueryService;
   private embeddingService: EmbeddingHelper;
@@ -41,10 +56,15 @@ export class SearchService {
 
     for (const binding of bindings) {
       const ontologyUri = binding.uri?.value;
-      const label = binding.label?.value;
+      const rawLabel = binding.label?.value;
       const description = binding.description?.value;
 
       if (!ontologyUri) continue;
+
+      // Use getFormattedLabel to handle URI vs real labels
+      const label = rawLabel
+        ? getFormattedLabel(rawLabel)
+        : getReadableName(ontologyUri);
 
       if (!ontologyMap.has(ontologyUri)) {
         ontologyMap.set(ontologyUri, {
@@ -70,43 +90,89 @@ export class SearchService {
     await this.saveOntologyWithEmbeddings(ontologyMap, source);
   }
 
-  private async queryOntologyAll(source: string): Promise<any[]> {
+  private async queryOntologyAllClasses(source: string): Promise<any[]> {
     const query = `
-      PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-      PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-      SELECT DISTINCT ?uri ?label ?description
-      WHERE {
-        # Find classes and properties through direct typing or domain/range references
-        {
-          ?uri rdf:type ?ty .
-          FILTER(?ty IN (rdfs:Class, rdf:Property, owl:Class))
-        } UNION {
-          ?prop ?rangeDomain ?uri .
-          FILTER(?rangeDomain IN (rdfs:domain, rdfs:range)) .
-          BIND(<http://www.w3.org/2002/07/owl#Class> AS ?ty)
-        }
-
-        # Extract labels from multiple vocabularies
-        OPTIONAL { ?uri rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
-        OPTIONAL { ?uri <http://www.w3.org/2004/02/skos/core#prefLabel> ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
-        OPTIONAL { ?uri <http://purl.org/dc/elements/1.1/title> ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
-        BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle) AS ?label)
-
-        # Extract descriptions from multiple vocabularies
-        OPTIONAL { ?uri rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
-        OPTIONAL { ?uri <http://dbpedia.org/ontology/abstract> ?dboAbstract . FILTER(LANG(?dboAbstract) = "en" || LANG(?dboAbstract) = "") }
-        OPTIONAL { ?uri <http://www.w3.org/2004/02/skos/core#definition> ?skosDefinition . FILTER(LANG(?skosDefinition) = "en" || LANG(?skosDefinition) = "") }
-        OPTIONAL { ?uri <http://purl.org/dc/elements/1.1/description> ?dcDescription . FILTER(LANG(?dcDescription) = "en" || LANG(?dcDescription) = "") }
-        BIND(COALESCE(?dboAbstract, ?rdfsComment, ?skosDefinition, ?dcDescription) AS ?description)
-
-        # Filter out unwanted schema namespaces
-        FILTER(!CONTAINS(STR(?uri), "http://www.openlinksw.com/schemas/"))
-      }
-      GROUP BY ?uri ?label ?description
-      ORDER BY ?uri ?label ?description
-      LIMIT 40000`;
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+    PREFIX dc: <http://purl.org/dc/elements/1.1/>
+    PREFIX dct: <http://purl.org/dc/terms/>
+    PREFIX dbo: <http://dbpedia.org/ontology/>
+    PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+    SELECT DISTINCT ?uri ?label ?description
+    WHERE {
+      # We actually want to find all types that are used as domains / ranges somewhere - otherwise they have no use for the exploration
+      ?prop ?dr ?uri .
+      FILTER(?dr IN (rdfs:domain, rdfs:range))
+      
+      # Multiple label options
+      OPTIONAL { ?uri rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
+      OPTIONAL { ?uri skos:prefLabel ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
+      OPTIONAL { ?uri dc:title ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
+      OPTIONAL { ?uri dct:title ?dctTitle . FILTER(LANG(?dctTitle) = "en" || LANG(?dctTitle) = "") }
+      OPTIONAL { ?uri foaf:name ?foafName . FILTER(LANG(?foafName) = "en" || LANG(?foafName) = "") }
+      
+      # Multiple description options
+      OPTIONAL { ?uri dbo:abstract ?dboAbstract . FILTER(LANG(?dboAbstract) = "en" || LANG(?dboAbstract) = "") }
+      OPTIONAL { ?uri rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
+      OPTIONAL { ?uri skos:definition ?skosDefinition . FILTER(LANG(?skosDefinition) = "en" || LANG(?skosDefinition) = "") }
+      OPTIONAL { ?uri dc:description ?dcDescription . FILTER(LANG(?dcDescription) = "en" || LANG(?dcDescription) = "") }
+      OPTIONAL { ?uri dct:description ?dctDescription . FILTER(LANG(?dctDescription) = "en" || LANG(?dctDescription) = "") }
+      OPTIONAL { ?uri skos:note ?skosNote . FILTER(LANG(?skosNote) = "en" || LANG(?skosNote) = "") }
+      
+      BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle, ?dctTitle, ?foafName, STR(?uri)) AS ?label)
+      BIND(COALESCE(?dboAbstract, ?rdfsComment, ?skosDefinition, ?dcDescription, ?dctDescription, ?skosNote) AS ?description)
+      }`;
 
     return await this.queryService.executeQuery(query, [source]);
+  }
+
+  private async queryOntologyAllProperties(source: string): Promise<any[]> {
+    const query = `
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX owl: <http://www.w3.org/2002/07/owl#>
+    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+    PREFIX dc: <http://purl.org/dc/elements/1.1/>
+    PREFIX dct: <http://purl.org/dc/terms/>
+    PREFIX dbo: <http://dbpedia.org/ontology/>
+    PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+    SELECT DISTINCT ?uri ?label ?description
+    WHERE {
+      ?uri rdf:type ?propType .
+      FILTER(?propType IN (rdf:Property, owl:ObjectProperty, owl:DatatypeProperty, owl:AnnotationProperty))
+      
+      # Multiple label options
+      OPTIONAL { ?uri rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
+      OPTIONAL { ?uri skos:prefLabel ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
+      OPTIONAL { ?uri dc:title ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
+      OPTIONAL { ?uri dct:title ?dctTitle . FILTER(LANG(?dctTitle) = "en" || LANG(?dctTitle) = "") }
+      OPTIONAL { ?uri foaf:name ?foafName . FILTER(LANG(?foafName) = "en" || LANG(?foafName) = "") }
+      
+      # Multiple description options
+      OPTIONAL { ?uri dbo:abstract ?dboAbstract . FILTER(LANG(?dboAbstract) = "en" || LANG(?dboAbstract) = "") }
+      OPTIONAL { ?uri rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
+      OPTIONAL { ?uri skos:definition ?skosDefinition . FILTER(LANG(?skosDefinition) = "en" || LANG(?skosDefinition) = "") }
+      OPTIONAL { ?uri dc:description ?dcDescription . FILTER(LANG(?dcDescription) = "en" || LANG(?dcDescription) = "") }
+      OPTIONAL { ?uri dct:description ?dctDescription . FILTER(LANG(?dctDescription) = "en" || LANG(?dctDescription) = "") }
+      OPTIONAL { ?uri skos:note ?skosNote . FILTER(LANG(?skosNote) = "en" || LANG(?skosNote) = "") }
+      
+      BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle, ?dctTitle, ?foafName, STR(?uri)) AS ?label)
+      BIND(COALESCE(?dboAbstract, ?rdfsComment, ?skosDefinition, ?dcDescription, ?dctDescription, ?skosNote) AS ?description)
+    }
+  `;
+
+    return await this.queryService.executeQuery(query, [source]);
+  }
+
+  private async queryOntologyAll(source: string): Promise<any[]> {
+    // First, query all classes
+    const classBindings = await this.queryOntologyAllClasses(source);
+
+    // Then, query all properties
+    const propertyBindings = await this.queryOntologyAllProperties(source);
+
+    return [...classBindings, ...propertyBindings];
   }
 
   public async searchOntology(
@@ -167,17 +233,35 @@ export class SearchService {
     let query = `
       PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
       PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+      PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+      PREFIX dc: <http://purl.org/dc/elements/1.1/>
+      PREFIX dct: <http://purl.org/dc/terms/>
       PREFIX dbo: <http://dbpedia.org/ontology/>
+      PREFIX foaf: <http://xmlns.com/foaf/0.1/>
       PREFIX bif: <http://www.openlinksw.com/schemas/bif#>
       
       # Pick longest label + longest description
-      SELECT ?resource (MAX(?label) AS ?label) (MAX(?description) AS ?description) WHERE {
-        ?resource rdfs:label ?label .
-        FILTER(LANG(?label) = "en" || LANG(?label) = "")
-        ?label bif:contains "'${searchQuery}'" .
+      SELECT ?resource (MAX(?finalLabel) AS ?label) (MAX(?finalDescription) AS ?description) WHERE {
+        ?resource ?labelProp ?searchLabel .
+        FILTER(?labelProp IN (rdfs:label, skos:prefLabel, dc:title, dct:title, foaf:name))
+        FILTER(LANG(?searchLabel) = "en" || LANG(?searchLabel) = "")
+        ?searchLabel bif:contains "'${searchQuery}'" .
+        
+        # Multiple label options for final result
+        OPTIONAL { ?resource rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
+        OPTIONAL { ?resource skos:prefLabel ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
+        OPTIONAL { ?resource dc:title ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
+        OPTIONAL { ?resource foaf:name ?foafName . FILTER(LANG(?foafName) = "en" || LANG(?foafName) = "") }
+        
+        # Multiple description options
         OPTIONAL { ?resource dbo:abstract ?abstract . FILTER(LANG(?abstract) = "en" || LANG(?abstract) = "") }
         OPTIONAL { ?resource rdfs:comment ?comment . FILTER(LANG(?comment) = "en" || LANG(?comment) = "") }
-        BIND(COALESCE(?abstract, ?comment, "") AS ?description)
+        OPTIONAL { ?resource skos:definition ?definition . FILTER(LANG(?definition) = "en" || LANG(?definition) = "") }
+        OPTIONAL { ?resource dc:description ?dcDesc . FILTER(LANG(?dcDesc) = "en" || LANG(?dcDesc) = "") }
+        OPTIONAL { ?resource dct:description ?dctDesc . FILTER(LANG(?dctDesc) = "en" || LANG(?dctDesc) = "") }
+        
+        BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle, ?foafName, STR(?resource)) AS ?finalLabel)
+        BIND(COALESCE(?abstract, ?comment, ?definition, ?dcDesc, ?dctDesc, "") AS ?finalDescription)
         `;
 
     // Add filters to exclude common schema types
@@ -198,11 +282,15 @@ export class SearchService {
     ]);
 
     return results
-      .map((binding: any) => ({
-        uri: binding.resource?.value || "",
-        label: binding.label?.value,
-        description: binding.description?.value,
-      }))
+      .map((binding: any) => {
+        const uri = binding.resource?.value || "";
+        const rawLabel = binding.label?.value;
+        return {
+          uri,
+          label: rawLabel ? getFormattedLabel(rawLabel) : getReadableName(uri),
+          description: binding.description?.value,
+        };
+      })
       .filter((result) => result.uri); // Filter out empty URIs
   }
 
@@ -213,9 +301,11 @@ export class SearchService {
 
     let response = `Found ${results.length} entities:\n\n`;
     results.forEach((resource: ResourceResult, index: number) => {
-      response += `${index + 1}. **${resource.label || resource.uri}**\n`;
+      response += `${index + 1}. **${
+        resource.label || getReadableName(resource.uri)
+      }**\n`;
       response += `   - URI: ${resource.uri}\n`;
-      if (resource.label && resource.label !== resource.uri) {
+      if (resource.label && resource.label !== getReadableName(resource.uri)) {
         response += `   - Label: ${resource.label}\n`;
       }
       if (resource.description) {
@@ -245,7 +335,7 @@ export class SearchService {
     return results
       .map(
         (res: any) =>
-          `**${res.label || res.uri}**\n   - URI: ${
+          `**${res.label || getReadableName(res.uri)}**\n   - URI: ${
             res.uri
           }\n   - Similarity: ${res.similarity}\n   - Description: ${
             res.description || "No description available"
@@ -265,7 +355,7 @@ export class SearchService {
     // Prepare ontology texts for embedding (description || label)
     for (const onto of ontologyMap.values()) {
       const embeddingText =
-        onto.description || onto.label || getReadableName(onto.uri);
+        "URI: " + onto.uri + "\n" + (onto.description || onto.label);
       if (embeddingText) {
         ontologyTexts.push(embeddingText);
         ontologyInfos.push(onto);
@@ -276,36 +366,36 @@ export class SearchService {
       `Prepared ${ontologyTexts.length} ontological constructs for embedding`
     );
 
-    // Generate embeddings in batch with callback to save immediately
+    // Generate embeddings in batches but collect all results before saving
     if (ontologyTexts.length > 0) {
+      const allEmbeddings: Float32Array[] = [];
       let processedCount = 0;
+      
       await this.embeddingService.embed(
         ontologyTexts,
         false,
         async (batchTexts, embeddings) => {
-          const batchOntologyItems = ontologyInfos.slice(
-            processedCount,
-            processedCount + batchTexts.length
-          );
-          const batchMap = new Map<string, OntologyItem>();
-          batchOntologyItems.forEach((item) => batchMap.set(item.uri, item));
-          await this.databaseHelper.saveOntologyToDatabase(
-            batchMap,
-            sparqlEndpoint,
-            embeddings
-          );
-
+          // Collect embeddings instead of saving immediately
+          allEmbeddings.push(...embeddings);
           processedCount += batchTexts.length;
-
-          if (processedCount === ontologyInfos.length) {
-            Logger.info(
-              `All ${ontologyInfos.length} ontological constructs saved with embeddings`
-            );
-            // Record the endpoint that was used for this exploration
-            await this.databaseHelper.recordEndpoint(sparqlEndpoint);
-          }
+          
+          Logger.info(`Collected embeddings for ${processedCount}/${ontologyTexts.length} items`);
         }
       );
+
+      // Save all embeddings in one transaction
+      Logger.info("Saving all embeddings to database in single transaction...");
+      await this.databaseHelper.saveOntologyToDatabase(
+        ontologyMap,
+        sparqlEndpoint,
+        allEmbeddings
+      );
+
+      Logger.info(
+        `All ${ontologyInfos.length} ontological constructs saved with embeddings`
+      );
+      // Record the endpoint that was used for this exploration
+      await this.databaseHelper.recordEndpoint(sparqlEndpoint);
     } else {
       Logger.warn("No ontological constructs to save to database");
     }

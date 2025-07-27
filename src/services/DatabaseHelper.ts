@@ -128,9 +128,9 @@ export class DatabaseHelper {
         ontology_uri,
         ontology_label,
         ontology_description,
-        distance
+        vec_distance_cosine(embedding, ?) as distance
       FROM ontology_index
-      WHERE embedding MATCH ? AND sparql_endpoint = ?
+      WHERE sparql_endpoint = ?
       ORDER BY distance
       LIMIT ?
     `);
@@ -141,11 +141,16 @@ export class DatabaseHelper {
       limit
     );
 
-    return results.map((row: any) => ({
-      uri: row.ontology_uri,
-      label: row.ontology_label || "",
-      description: row.ontology_description || "",
-      similarity: Math.round((1 - row.distance) * 100) / 100,
-    }));
+    return results.map((row: any) => {
+      // vec_distance_cosine returns cosine distance in [0,1] range
+      // Convert to cosine similarity: similarity = 1 - distance
+      const similarity = Math.max(0, Math.min(1, 1 - row.distance));
+      return {
+        uri: row.ontology_uri,
+        label: row.ontology_label || "",
+        description: row.ontology_description || "",
+        similarity: Math.round(similarity * 100) / 100,
+      };
+    });
   }
 }

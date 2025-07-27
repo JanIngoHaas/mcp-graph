@@ -2,6 +2,21 @@ import { getDisplayName } from "@modelcontextprotocol/sdk/shared/metadataUtils.j
 import { getReadableName } from "../utils/formatting.js";
 import { QueryService } from "./QueryService.js";
 
+/**
+ * Checks if a label appears to be a URI (starts with http/https)
+ */
+function isUriLabel(label: string): boolean {
+  return label.startsWith('http://') || label.startsWith('https://');
+}
+
+/**
+ * Gets a properly formatted label, using getReadableName for URI labels
+ */
+function getFormattedLabel(label: string): string {
+  if (isUriLabel(label)) return getReadableName(label);
+  return label;
+}
+
 export class InspectionService {
   constructor(private queryService: QueryService) {
     this.queryService = queryService;
@@ -88,20 +103,17 @@ async function inspectProperty(
     if (binding.propRange && !propRange.has(binding.propRange.value)) {
       propRange.set(
         binding.propRange.value,
-        getReadableName(binding.propRange.value, binding.propRangeLabel?.value)
+        binding.propRangeLabel?.value ? getFormattedLabel(binding.propRangeLabel.value) : getReadableName(binding.propRange.value)
       );
     }
     if (binding.propDomain && !propDomain.has(binding.propDomain.value)) {
       propDomain.set(
         binding.propDomain.value,
-        getReadableName(
-          binding.propDomain.value,
-          binding.propDomainLabel?.value
-        )
+        binding.propDomainLabel?.value ? getFormattedLabel(binding.propDomainLabel.value) : getReadableName(binding.propDomain.value)
       );
     }
     if (binding.propLabel) {
-      propLabel = binding.propLabel.value;
+      propLabel = getFormattedLabel(binding.propLabel.value);
     }
     if (binding.propDescr) {
       propDescr = binding.propDescr.value;
@@ -238,10 +250,7 @@ async function inspectClass(
       if (!ranges.has(binding.propRange.value)) {
         ranges.set(
           binding.propRange.value,
-          getReadableName(
-            binding.propRange.value,
-            binding.propRangeLabel?.value
-          )
+          binding.propRangeLabel?.value ? getFormattedLabel(binding.propRangeLabel.value) : getReadableName(binding.propRange.value)
         );
       }
     }
@@ -249,15 +258,12 @@ async function inspectClass(
       if (!domains.has(binding.propDomain.value)) {
         domains.set(
           binding.propDomain.value,
-          getReadableName(
-            binding.propDomain.value,
-            binding.propDomainLabel?.value
-          )
+          binding.propDomainLabel?.value ? getFormattedLabel(binding.propDomainLabel.value) : getReadableName(binding.propDomain.value)
         );
       }
     }
     if (binding.classLabel) {
-      label = binding.classLabel.value;
+      label = getFormattedLabel(binding.classLabel.value);
     }
     if (binding.classDescr) {
       description = binding.classDescr.value;

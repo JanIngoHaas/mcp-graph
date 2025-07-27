@@ -1,3 +1,4 @@
+import { beforeAll, test, expect } from 'vitest';
 import { InspectionService } from '../../dist/services/InspectionService.js';
 import { QueryHelper } from '../../dist/services/QueryHelper.js';
 

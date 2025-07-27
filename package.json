@@ -16,15 +16,15 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",
-    "jest": "30.0.5",
-    "typescript": "5.8.3"
+    "typescript": "5.8.3",
+    "vitest": "^3.2.4"
   },
   "type": "module",
   "scripts": {
     "build": "tsc",
     "start": "tsc && node dist/index.js",
     "init": "tsc && node dist/index.js --init",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand"
+    "test": "tsc && vitest"
   },
   "bin": {
     "sparql-mcp": "dist/index.js"
