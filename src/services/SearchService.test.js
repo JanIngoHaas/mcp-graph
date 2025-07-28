@@ -1,5 +1,5 @@
 import { beforeAll, test, expect, beforeEach } from 'vitest';
-import { QueryHelper } from '../../dist/services/QueryHelper.js';
+import { QueryService } from '../../dist/services/QueryService.js';
 import { SearchService } from '../../dist/services/SearchService.js';
 import { EmbeddingHelper } from '../../dist/services/EmbeddingHelper.js';
 import { DatabaseHelper } from '../../dist/services/DatabaseHelper.js';
@@ -13,9 +13,10 @@ let databaseHelper;
 const SPARQL_EP = 'https://dbpedia.org/sparql';
 
 beforeAll(async () => {
-    queryHelper = new QueryHelper();
+    queryHelper = new QueryService();
     embeddingHelper = new EmbeddingHelper();
-    databaseHelper = new DatabaseHelper("./tmp-test/test.db");
+    await embeddingHelper.init();
+    databaseHelper = new DatabaseHelper("data/ontology.db");
     searchService = new SearchService(queryHelper, embeddingHelper, databaseHelper);
     await searchService.exploreOntology(SPARQL_EP, (processed, total) => {
         Logger.info(

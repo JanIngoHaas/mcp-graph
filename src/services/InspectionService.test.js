@@ -1,13 +1,13 @@
 import { beforeAll, test, expect } from 'vitest';
 import { InspectionService } from '../../dist/services/InspectionService.js';
-import { QueryHelper } from '../../dist/services/QueryHelper.js';
+import { QueryService } from '../../dist/services/QueryService.js';
 
 let inspectionService;
 let queryHelper;
 const SPARQL_EP = 'https://dbpedia.org/sparql';
 
 beforeAll(() => {
-    queryHelper = new QueryHelper();
+    queryHelper = new QueryService();
     inspectionService = new InspectionService(queryHelper);
 });
 

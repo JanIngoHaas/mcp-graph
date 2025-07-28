@@ -4,21 +4,18 @@ import Logger from "../utils/logger.js";
 export class EmbeddingHelper {
   private _embedder: FeatureExtractionPipeline | null = null;
 
-  async embed(
-    text: string[],
-    instructionType: "query_class" | "query_property" | "none",
-    onBatchComplete: (
-      batchTexts: string[],
-      embeddings: Float32Array[]
-    ) => Promise<void>
-  ): Promise<void> {
-    if (!this._embedder) {
-      Logger.info("Initializing embedding model (Qwen3-Embedding-0.6B)...");
+  async init(): Promise<void> {
+    if (this._embedder) {
+      return; // Already initialized
+    }
+
+    Logger.info("Initializing embedding model (Qwen3-Embedding-0.6B)...");
+    try {
       this._embedder = await pipeline(
         "feature-extraction",
         "onnx-community/Qwen3-Embedding-0.6B-ONNX",
         {
-          device: "auto",
+          device: "cpu",
           dtype: "fp32",
           progress_callback: (progress) => {
             if (progress.status === "progress") {
@@ -27,7 +24,37 @@ export class EmbeddingHelper {
           },
         }
       );
-      Logger.info("Embedding model loaded successfully");
+    } catch (err) {
+      Logger.warn("Failed to initialize with device 'auto', retrying with 'cpu'...");
+      this._embedder = await pipeline(
+        "feature-extraction",
+        "onnx-community/Qwen3-Embedding-0.6B-ONNX",
+        {
+          device: "cpu",
+          dtype: "fp32",
+          progress_callback: (progress) => {
+            if (progress.status === "progress") {
+              Logger.debug(`Loading embedding model: ${progress.progress}`);
+            }
+          },
+        }
+      );
+    }
+    Logger.info("Embedding model loaded successfully");
+  }
+
+  async embed(
+    text: string[],
+    instructionType: "query_class" | "query_property" | "none",
+    onBatchComplete: (
+      batchTexts: string[],
+      embeddings: Float32Array[]
+    ) => Promise<void>
+  ): Promise<void> {
+    await this.init();
+
+    if (!this._embedder) {
+      throw new Error("Failed to initialize embedding model");
     }
 
     // Format text with appropriate instruction based on type
