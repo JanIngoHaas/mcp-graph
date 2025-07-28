@@ -276,11 +276,17 @@ export class SearchService {
     let queryVector: Float32Array | undefined;
     await this.embeddingService.embed(
       [userQuery],
-      true,
+      searchType === "class" ? "query_class" : "query_property",
       async (batchTexts, embeddings) => {
         queryVector = embeddings[0];
         Logger.info(
-          `Generated embeddings for user query: ${batchTexts}: ${embeddings}`
+          `Generated embedding for user query: "${
+            batchTexts[0]
+          }" - Vector dimensions: ${
+            embeddings[0].length
+          }, First 5 values: [${Array.from(embeddings[0].slice(0, 5))
+            .map((v) => v.toFixed(4))
+            .join(", ")}]`
         );
       }
     );
@@ -456,7 +462,7 @@ export class SearchService {
 
       await this.embeddingService.embed(
         classTexts,
-        false,
+        "none",
         async (batchTexts, embeddings) => {
           allEmbeddings.push(...embeddings);
           processedCount += batchTexts.length;
@@ -503,7 +509,7 @@ export class SearchService {
 
       await this.embeddingService.embed(
         propertyTexts,
-        false,
+        "none",
         async (batchTexts, embeddings) => {
           allEmbeddings.push(...embeddings);
           processedCount += batchTexts.length;

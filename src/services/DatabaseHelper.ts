@@ -45,7 +45,7 @@ export class DatabaseHelper {
         ontology_label TEXT NOT NULL,
         ontology_description TEXT,
         sparql_endpoint TEXT NOT NULL,
-        embedding FLOAT[1024]
+        embedding FLOAT[1024] distance_metric=cosine
       );
       
       CREATE VIRTUAL TABLE IF NOT EXISTS property_index USING vec0(
@@ -53,7 +53,7 @@ export class DatabaseHelper {
         ontology_label TEXT NOT NULL,
         ontology_description TEXT,
         sparql_endpoint TEXT NOT NULL,
-        embedding FLOAT[1024]
+        embedding FLOAT[1024] distance_metric=cosine
       );
     `);
   }
@@ -97,27 +97,29 @@ export class DatabaseHelper {
     Logger.info(`Saving ${classMap.size} classes to database...`);
 
     const db = await this.getDatabase();
-    const insertStmt = db.prepare(`
+    const classItems = Array.from(classMap.values());
+
+    // Use single bulk insert statement
+    const bulkInsertQuery = `
       INSERT OR REPLACE INTO class_index (ontology_uri, ontology_label, ontology_description, sparql_endpoint, embedding)
-      VALUES (?, ?, ?, ?, ?)
-    `);
+      VALUES ${classItems.map(() => `(?, ?, ?, ?, ?)`).join(", ")}
+    `;
 
-    const transaction = db.transaction(() => {
-      let i = 0;
-      for (const classItem of classMap.values()) {
-        const embedding = embeddings[i++];
-
-        insertStmt.run(
-          classItem.uri,
-          classItem.label || "",
-          classItem.description || "",
-          sparqlEndpoint,
-          JSON.stringify(Array.from(embedding))
-        );
-      }
+    const allParams: any[] = [];
+    classItems.forEach((classItem, i) => {
+      const embedding = embeddings[i];
+      allParams.push(
+        classItem.uri,
+        classItem.label || "",
+        classItem.description || "",
+        sparqlEndpoint,
+        JSON.stringify(Array.from(embedding))
+      );
     });
 
-    transaction();
+    const insertStmt = db.prepare(bulkInsertQuery);
+    insertStmt.run(...allParams);
+
     Logger.info(
       `Successfully saved ${classMap.size} classes with embeddings to database`
     );
@@ -131,27 +133,29 @@ export class DatabaseHelper {
     Logger.info(`Saving ${propertyMap.size} properties to database...`);
 
     const db = await this.getDatabase();
-    const insertStmt = db.prepare(`
+    const propertyItems = Array.from(propertyMap.values());
+
+    // Use single bulk insert statement
+    const bulkInsertQuery = `
       INSERT OR REPLACE INTO property_index (ontology_uri, ontology_label, ontology_description, sparql_endpoint, embedding)
-      VALUES (?, ?, ?, ?, ?)
-    `);
+      VALUES ${propertyItems.map(() => `(?, ?, ?, ?, ?)`).join(", ")}
+    `;
 
-    const transaction = db.transaction(() => {
-      let i = 0;
-      for (const propertyItem of propertyMap.values()) {
-        const embedding = embeddings[i++];
-
-        insertStmt.run(
-          propertyItem.uri,
-          propertyItem.label || "",
-          propertyItem.description || "",
-          sparqlEndpoint,
-          JSON.stringify(Array.from(embedding))
-        );
-      }
+    const allParams: any[] = [];
+    propertyItems.forEach((propertyItem, i) => {
+      const embedding = embeddings[i];
+      allParams.push(
+        propertyItem.uri,
+        propertyItem.label || "",
+        propertyItem.description || "",
+        sparqlEndpoint,
+        JSON.stringify(Array.from(embedding))
+      );
     });
 
-    transaction();
+    const insertStmt = db.prepare(bulkInsertQuery);
+    insertStmt.run(...allParams);
+
     Logger.info(
       `Successfully saved ${propertyMap.size} properties with embeddings to database`
     );
@@ -187,6 +191,7 @@ export class DatabaseHelper {
     const queryVectorStr = JSON.stringify(Array.from(queryVector));
 
     const results = searchStmt.all(queryVectorStr, sparqlEndpoint, limit);
+    results.sort((a: any, b: any) => a.distance - b.distance);
 
     return results.map((row: any) => {
       // sqlite-vec MATCH returns cosine distance, convert to similarity

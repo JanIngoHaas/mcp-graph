@@ -12,10 +12,22 @@ export async function createServer(
   initOnly: boolean = false,
   dbPath?: string
 ): Promise<McpServer> {
-  const server = new McpServer({
-    name: "rdfGraph",
-    version: "0.1.0",
-  });
+  const server = new McpServer(
+    {
+      name: "rdfGraph",
+      version: "0.1.0",
+    },
+    {
+      instructions: `This is a service to connect you to an RDF-based Knowledge Graph. You can use it to query and explore the graph.
+Process (you may deviate if deemed necessary - be flexible!):
+1) Identify key terms in the user's query.
+2a) Use searchAll to find relevant classes and properties - be aware that this is a syntactic, fuzzy search
+2b) In case, searchAll didn't return desired results, use semanticSearch to find relevant classes and properties. Here, you can structure your request more freely and flexibly.
+3) Use inspectMetadata to get more details about specific classes or properties, e.g. what properties you can use in a subsequent SPARQL query or what the domain and range of a property is.
+4) Use makeQuery to execute a SPARQL query against the Knowledge Graph. You can use the results from searchAll and inspectMetadata to construct your query.
+`,
+    }
+  );
 
   // Initialize services and helpers
   const queryService = new QueryService();
@@ -71,46 +83,56 @@ export async function createServer(
     }
   );
 
-  // Register the search ontology tool
-  // server.registerTool(
-  //   "searchOntology",
-  //   {
-  //     description:
-  //       'Search for RDF ontological constructs (classes, properties, datatypes, etc.). Returns ontology URIs - use inspectMetadata for full details. Examples: "person birth date" (finds birthDate property), "location coordinates" (finds geographic properties), "organization class" (finds Organization class)',
-  //     inputSchema: {
-  //       query: z.string().describe("The natural language search query"),
-  //       limit: z
-  //         .number()
-  //         .optional()
-  //         .default(10)
-  //         .describe("Maximum number of results to return (default: 10)"),
-  //     },
-  //   },
-  //   async (request: { query: string; limit: number }) => {
-  //     const { query, limit } = request;
+  // Register the semantic search tool
+  server.registerTool(
+    "semanticSearch",
+    {
+      description:
+        'Search for RDF ontological constructs using semantic similarity. Specify whether to search for classes or properties. Returns ontology URIs - use inspectMetadata for full details. Examples: "person birth date" (finds birthDate property), "location coordinates" (finds geographic properties), "organization concept" (finds Organization class)',
+      inputSchema: {
+        query: z.string().describe("The natural language search query"),
+        searchType: z
+          .enum(["class", "property"])
+          .describe(
+            "Whether to search for classes ('class') or properties ('property')"
+          ),
+        limit: z
+          .number()
+          .optional()
+          .default(10)
+          .describe("Maximum number of results to return (default: 10)"),
+      },
+    },
+    async (request: {
+      query: string;
+      searchType: "class" | "property";
+      limit: number;
+    }) => {
+      const { query, searchType, limit } = request;
 
-  //     if (!query) {
-  //       throw new Error("Query parameter is required");
-  //     }
+      if (!query) {
+        throw new Error("Query parameter is required");
+      }
 
-  //     const results = await searchService.searchOntology(
-  //       query,
-  //       sparqlEndpoint,
-  //       limit
-  //     );
+      const results = await searchService.searchOntology(
+        query,
+        searchType,
+        limit,
+        sparqlEndpoint
+      );
 
-  //     const response = searchService.renderOntologyResult(results);
+      const response = searchService.renderOntologyResult(results);
 
-  //     return {
-  //       content: [
-  //         {
-  //           type: "text",
-  //           text: response,
-  //         },
-  //       ],
-  //     };
-  //   }
-  // );
+      return {
+        content: [
+          {
+            type: "text",
+            text: response,
+          },
+        ],
+      };
+    }
+  );
 
   // Register the search all tool
   server.registerTool(

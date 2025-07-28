@@ -36,7 +36,7 @@ async function testSearchOntologyClasses() {
 
 async function testSearchOntologyProperties() {
     // Exploration should already be done from previous test
-    const result = await searchService.searchOntology("author of books", "property", 10, SPARQL_EP);
+    const result = await searchService.searchOntology("Birthday", "property", 1000, SPARQL_EP);
     console.log('Search Properties Result:\n', result);
     expect(result).toBeDefined();
     expect(result.length).toBeGreaterThan(0);
@@ -50,5 +50,5 @@ async function testSearchAll() {
 };
 
 test('Search All', testSearchAll, 300000);
-//test('Search Ontology Classes', testSearchOntologyClasses, 300000);
+test('Search Ontology Classes', testSearchOntologyClasses, 300000);
 test('Search Ontology Properties', testSearchOntologyProperties, 300000);
