@@ -43,29 +43,11 @@ export class EmbeddingHelper {
       }
     });
 
-    Logger.info(
-      `Formatted texts for embedding: ${formattedTexts
-        .map((t) => `"${t}"`)
-        .join(", ")}`
-    );
-
     const batchSize = parseInt(process.env.EMBEDDING_BATCH_SIZE || "32");
 
     for (let i = 0; i < formattedTexts.length; i += batchSize) {
       const batch = formattedTexts.slice(i, i + batchSize);
       const originalBatch = text.slice(i, i + batchSize);
-
-      Logger.info(
-        `Processing the following texts for embeddings:\n${batch.join("\n")}`
-      );
-
-      Logger.info(
-        `Processing embedding batch ${
-          Math.floor(i / batchSize) + 1
-        }/${Math.ceil(formattedTexts.length / batchSize)} (${
-          batch.length
-        } texts)`
-      );
 
       const result = await this._embedder(batch, {
         pooling: "last_token",
@@ -81,15 +63,6 @@ export class EmbeddingHelper {
             ? embedding
             : Array.from(embedding);
           const float32Array = new Float32Array(embeddingArray);
-
-          Logger.info(
-            `Generated embedding for "${originalBatch[index]}" - Dimensions: ${
-              float32Array.length
-            }, First 5 values: [${Array.from(float32Array.slice(0, 5))
-              .map((v) => v.toFixed(4))
-              .join(", ")}]`
-          );
-
           return float32Array;
         }
       );

@@ -14,21 +14,30 @@ This server provides tools for exploring SPARQL endpoints and RDF data sources. 
 - **Automatic Ontology Exploration**: Discovers and indexes ontological structures from SPARQL endpoints
 - **Vector Database**: Persistent storage with SQLite and vector extensions for fast similarity search
 
-## Installation
+## Installation & Setup
+
+### Docker (Recommended)
+
+**Quick Start:**
+```bash
+# CPU version
+docker-compose up mcp-graph
+
+# GPU version (requires nvidia-docker)
+docker-compose --profile cuda up mcp-graph-cuda
+```
+
+### Native Installation
 
 **For MCP usage:**
-
 ```bash
 npm install -g .
 ```
 
-This installs the `sparql-mcp` command globally, making it available system-wide without hardcoded paths. Now you need to setup the MCP Graph for a SPARQL Endpoint. Set the required environement variables (only SPARQL_ENDPOINT is required) and run
-
+This installs the `sparql-mcp` command globally. To initialize the database:
 ```bash
 npm run init
 ```
-
-This configures the database for RAG purposes.
 
 ## MCP Tools
 
@@ -41,7 +50,18 @@ Once running, the server provides these tools to MCP clients:
 
 ## MCP Server Configuration
 
-After global installation, add this to your MCP client configuration:
+### Docker Configuration
+
+The Docker setup handles all environment variables automatically. For custom endpoints:
+
+```bash
+# Edit docker-compose.yml environment section
+SPARQL_ENDPOINT: "https://your-endpoint.org/sparql"
+```
+
+### Native Configuration
+
+For native installation, add this to your MCP client configuration:
 
 ```json
 {
@@ -57,30 +77,29 @@ After global installation, add this to your MCP client configuration:
 }
 ```
 
-This configuration works cross-platform (Windows, Mac, Linux) with no hardcoded paths.
-
 **Environment Variables:**
 
-- `DB_PATH`: Database storage path (`:cache:` for temporary cache storage)
+- `DB_PATH`: Database storage path (`:cache:` for temporary, `./data/ontology.db` for persistent)
 - `SPARQL_ENDPOINT`: SPARQL endpoint URL for RDF data exploration
 - `LOG_FILE`: Path to log file (optional, logs to stderr if not set)
 - `LOG_LEVEL`: Logging level (optional, default: `info`)
 - `EMBEDDING_BATCH_SIZE`: Batch size for embedding processing (optional, default: 32)
 
-## Testing
+## Development & Testing
 
-To run tests:
+### Docker Development
+```bash
+# Development mode with hot reload
+docker-compose --profile dev up mcp-graph-dev
+```
 
-1. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-2. Run tests:
-   ```bash
-   npm test
-   ```
+### Native Development
+```bash
+npm install
+npm test          # Run tests
+npm run build     # Compile TypeScript
+npm run start     # Build and run
+```
 
 ## Architecture
 

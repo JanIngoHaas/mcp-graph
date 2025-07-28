@@ -2,18 +2,31 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Build & Development Commands
+## Running the Server
+
+### Docker (Recommended)
+
+**CPU version:**
+```bash
+docker-compose up mcp-graph
+```
+
+**GPU version (requires nvidia-docker):**
+```bash
+docker-compose --profile cuda up mcp-graph-cuda
+```
+
+**Development mode:**
+```bash
+docker-compose --profile dev up mcp-graph-dev
+```
+
+### Native Development
 
 - `npm install` - Install dependencies
 - `npx tsc` - Compile TypeScript to JavaScript (outputs to dist/)
-- `node dist/index.js` - Run the compiled MCP server (requires environment variables)
-
-## Server Startup
-
-The server requires environment variables for configuration. Set these before running:
 
 **Linux/Mac:**
-
 ```bash
 export DB_PATH="./data/ontology.db"
 export SPARQL_ENDPOINT="https://dbpedia.org/sparql"
@@ -21,19 +34,10 @@ npx tsc && node dist/index.js
 ```
 
 **Windows PowerShell:**
-
 ```powershell
 $env:DB_PATH="./data/ontology.db"
 $env:SPARQL_ENDPOINT="https://dbpedia.org/sparql"
 npx tsc; node dist/index.js
-```
-
-**Windows Command Prompt:**
-
-```cmd
-set DB_PATH=./data/ontology.db
-set SPARQL_ENDPOINT=https://dbpedia.org/sparql
-npx tsc && node dist/index.js
 ```
 
 ## Environment Variables

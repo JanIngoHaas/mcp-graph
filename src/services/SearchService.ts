@@ -279,15 +279,6 @@ export class SearchService {
       searchType === "class" ? "query_class" : "query_property",
       async (batchTexts, embeddings) => {
         queryVector = embeddings[0];
-        Logger.info(
-          `Generated embedding for user query: "${
-            batchTexts[0]
-          }" - Vector dimensions: ${
-            embeddings[0].length
-          }, First 5 values: [${Array.from(embeddings[0].slice(0, 5))
-            .map((v) => v.toFixed(4))
-            .join(", ")}]`
-        );
       }
     );
 
@@ -494,7 +485,6 @@ export class SearchService {
 
     Logger.info("Preparing property texts for embedding...");
     for (const propertyItem of propertyMap.values()) {
-      // Use the smart-generated description for properties
       const embeddingText = propertyItem.description;
 
       propertyTexts.push(embeddingText);
