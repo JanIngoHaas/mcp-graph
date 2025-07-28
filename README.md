@@ -14,31 +14,6 @@ This server provides tools for exploring SPARQL endpoints and RDF data sources. 
 - **Automatic Ontology Exploration**: Discovers and indexes ontological structures from SPARQL endpoints
 - **Vector Database**: Persistent storage with SQLite and vector extensions for fast similarity search
 
-## Installation & Setup
-
-### Docker (Recommended)
-
-**Quick Start:**
-```bash
-# CPU version
-docker-compose up mcp-graph
-
-# GPU version (requires nvidia-docker)
-docker-compose --profile cuda up mcp-graph-cuda
-```
-
-### Native Installation
-
-**For MCP usage:**
-```bash
-npm install -g .
-```
-
-This installs the `sparql-mcp` command globally. To initialize the database:
-```bash
-npm run init
-```
-
 ## MCP Tools
 
 Once running, the server provides these tools to MCP clients:
@@ -48,20 +23,51 @@ Once running, the server provides these tools to MCP clients:
 3. **`searchAll`** - Full-text search for any RDF entities
 4. **`inspectMetadata`** - Detailed inspection of any metadata URI (classes show properties with domain/range, properties show domain-range relationships)
 
-## MCP Server Configuration
+# Installation & Setup
 
-### Docker Configuration
+<!-- ## Docker (Recommended)
 
-The Docker setup handles all environment variables automatically. For custom endpoints:
+**Quick Start:**
+
+```json
+{
+  "mcpServers": {
+    "sparql-mcp": {
+      "command": "docker-compose",
+      "arg": ["up", "--build", "-d"],
+      "env": {
+        "SPARQL_ENDPOINT": "https://dbpedia.org/sparql"
+      }
+    }
+  }
+}
+``` -->
+
+## Native Installation - for development
+
+**For MCP usage:**
+
+### Linux / MacOS
 
 ```bash
-# Edit docker-compose.yml environment section
-SPARQL_ENDPOINT: "https://your-endpoint.org/sparql"
+export SPARQL_ENDPOINT="https://your-endpoint.org/sparql"
+npm install
+npm run init
+npm test
+npm install -g
 ```
 
-### Native Configuration
+### Windows
 
-For native installation, add this to your MCP client configuration:
+```ps
+$env:SPARQL_ENDPOINT="https://dbpedia.org/sparql"
+npm install
+npm run init
+npm test
+npm install -g
+```
+
+Now, you can use the following config file in your favourite MCP Client
 
 ```json
 {
@@ -69,37 +75,31 @@ For native installation, add this to your MCP client configuration:
     "sparql-mcp": {
       "command": "sparql-mcp",
       "env": {
-        "DB_PATH": ":cache:",
-        "SPARQL_ENDPOINT": "https://dbpedia.org/sparql"
+        "SPARQL_ENDPOINT": "https://dbpedia.org/sparql",
+        "DB_PATH": ":cache:"
       }
     }
   }
 }
 ```
 
+## MCP Server Configuration
+
+### Docker Configuration
+
+The Docker setup handles all environment variables automatically. For custom endpoints:
+
+### Native Configuration
+
+For native installation, add this to your MCP client configuration:
+
 **Environment Variables:**
 
-- `DB_PATH`: Database storage path (`:cache:` for temporary, `./data/ontology.db` for persistent)
-- `SPARQL_ENDPOINT`: SPARQL endpoint URL for RDF data exploration
+- `DB_PATH`: Database storage path (optional, default: `:cache:` to automatically choose a cache path)
+- `SPARQL_ENDPOINT`: SPARQL endpoint URL for RDF data exploration; Required
 - `LOG_FILE`: Path to log file (optional, logs to stderr if not set)
 - `LOG_LEVEL`: Logging level (optional, default: `info`)
 - `EMBEDDING_BATCH_SIZE`: Batch size for embedding processing (optional, default: 32)
-
-## Development & Testing
-
-### Docker Development
-```bash
-# Development mode with hot reload
-docker-compose --profile dev up mcp-graph-dev
-```
-
-### Native Development
-```bash
-npm install
-npm test          # Run tests
-npm run build     # Compile TypeScript
-npm run start     # Build and run
-```
 
 ## Architecture
 

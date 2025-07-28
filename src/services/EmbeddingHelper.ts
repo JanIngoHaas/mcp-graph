@@ -1,4 +1,5 @@
 import { FeatureExtractionPipeline, pipeline } from "@huggingface/transformers";
+import * as ort from "onnxruntime-node";
 import Logger from "../utils/logger.js";
 
 export class EmbeddingHelper {
@@ -8,39 +9,20 @@ export class EmbeddingHelper {
     if (this._embedder) {
       return; // Already initialized
     }
-
     Logger.info("Initializing embedding model (Qwen3-Embedding-0.6B)...");
-    try {
-      this._embedder = await pipeline(
-        "feature-extraction",
-        "onnx-community/Qwen3-Embedding-0.6B-ONNX",
-        {
-          device: "cpu",
-          dtype: "fp32",
-          progress_callback: (progress) => {
-            if (progress.status === "progress") {
-              Logger.debug(`Loading embedding model: ${progress.progress}`);
-            }
-          },
-        }
-      );
-    } catch (err) {
-      Logger.warn("Failed to initialize with device 'auto', retrying with 'cpu'...");
-      this._embedder = await pipeline(
-        "feature-extraction",
-        "onnx-community/Qwen3-Embedding-0.6B-ONNX",
-        {
-          device: "cpu",
-          dtype: "fp32",
-          progress_callback: (progress) => {
-            if (progress.status === "progress") {
-              Logger.debug(`Loading embedding model: ${progress.progress}`);
-            }
-          },
-        }
-      );
-    }
-    Logger.info("Embedding model loaded successfully");
+    this._embedder = await pipeline(
+      "feature-extraction",
+      "onnx-community/Qwen3-Embedding-0.6B-ONNX",
+      {
+        device: "cpu",
+        dtype: "fp32",
+        progress_callback: (progress) => {
+          if (progress.status === "progress") {
+            Logger.debug(`Loading embedding model: ${progress.progress}`);
+          }
+        },
+      }
+    );
   }
 
   async embed(

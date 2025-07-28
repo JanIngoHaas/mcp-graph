@@ -16,7 +16,8 @@ beforeAll(async () => {
     queryHelper = new QueryService();
     embeddingHelper = new EmbeddingHelper();
     await embeddingHelper.init();
-    databaseHelper = new DatabaseHelper("data/ontology.db");
+    let cache_dir = process.env.DB_PATH || ':cache:';
+    databaseHelper = new DatabaseHelper(cache_dir);
     searchService = new SearchService(queryHelper, embeddingHelper, databaseHelper);
     await searchService.exploreOntology(SPARQL_EP, (processed, total) => {
         Logger.info(

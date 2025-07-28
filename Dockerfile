@@ -1,5 +1,4 @@
-# Single stage build with CUDA support
-FROM nvidia/cuda:12.2.2-runtime-ubuntu22.04
+FROM ubuntu:22.04
 
 # Install Node.js 23 and all dependencies
 RUN apt-get update && apt-get install -y \
@@ -19,7 +18,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies and build
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY . .
@@ -38,6 +37,8 @@ ENV DB_PATH="/app/data/ontology.db"
 ENV SPARQL_ENDPOINT="https://dbpedia.org/sparql"
 ENV LOG_LEVEL="info"
 ENV EMBEDDING_BATCH_SIZE="32"
+# Force ONNX Runtime to use CPU only (avoids CUDA provider issues)
+ENV ORT_EXECUTION_PROVIDERS="CPUExecutionProvider"
 
 # Create non-root user for security
 RUN groupadd -g 1001 nodejs && \
