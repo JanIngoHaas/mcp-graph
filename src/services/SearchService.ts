@@ -396,7 +396,7 @@ export class SearchService {
       if (resource.type) {
         response += `   - Type: ${resource.type}\n`;
       }
-      response += `   - Use inspectURI to see full details\n\n`;
+      response += `   - Use inspectMetadata to see full details\n\n`;
     });
 
     return response;
@@ -421,7 +421,7 @@ export class SearchService {
             res.uri
           }\n   - Similarity: ${res.similarity}\n   - Description: ${
             res.description || "No description available"
-          }\n   - Use inspectURI to see full details`
+          }\n   - Use inspectMetadata to see full details`
       )
       .join("\n\n");
   }

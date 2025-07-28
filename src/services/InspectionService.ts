@@ -6,7 +6,7 @@ import { QueryService } from "./QueryService.js";
  * Checks if a label appears to be a URI (starts with http/https)
  */
 function isUriLabel(label: string): boolean {
-  return label.startsWith('http://') || label.startsWith('https://');
+  return label.startsWith("http://") || label.startsWith("https://");
 }
 
 /**
@@ -27,6 +27,14 @@ export class InspectionService {
     sparqlEndpoint: string
   ): Promise<string> {
     return await inspectMetadata(uri, sparqlEndpoint, this.queryService);
+  }
+
+  public async inspectData(
+    uri: string,
+    sparqlEndpoint: string,
+    expandProperties: string[] = []
+  ): Promise<string> {
+    return await inspectData(uri, sparqlEndpoint, this.queryService, expandProperties);
   }
 }
 
@@ -103,13 +111,17 @@ async function inspectProperty(
     if (binding.propRange && !propRange.has(binding.propRange.value)) {
       propRange.set(
         binding.propRange.value,
-        binding.propRangeLabel?.value ? getFormattedLabel(binding.propRangeLabel.value) : getReadableName(binding.propRange.value)
+        binding.propRangeLabel?.value
+          ? getFormattedLabel(binding.propRangeLabel.value)
+          : getReadableName(binding.propRange.value)
       );
     }
     if (binding.propDomain && !propDomain.has(binding.propDomain.value)) {
       propDomain.set(
         binding.propDomain.value,
-        binding.propDomainLabel?.value ? getFormattedLabel(binding.propDomainLabel.value) : getReadableName(binding.propDomain.value)
+        binding.propDomainLabel?.value
+          ? getFormattedLabel(binding.propDomainLabel.value)
+          : getReadableName(binding.propDomain.value)
       );
     }
     if (binding.propLabel) {
@@ -250,7 +262,9 @@ async function inspectClass(
       if (!ranges.has(binding.propRange.value)) {
         ranges.set(
           binding.propRange.value,
-          binding.propRangeLabel?.value ? getFormattedLabel(binding.propRangeLabel.value) : getReadableName(binding.propRange.value)
+          binding.propRangeLabel?.value
+            ? getFormattedLabel(binding.propRangeLabel.value)
+            : getReadableName(binding.propRange.value)
         );
       }
     }
@@ -258,7 +272,9 @@ async function inspectClass(
       if (!domains.has(binding.propDomain.value)) {
         domains.set(
           binding.propDomain.value,
-          binding.propDomainLabel?.value ? getFormattedLabel(binding.propDomainLabel.value) : getReadableName(binding.propDomain.value)
+          binding.propDomainLabel?.value
+            ? getFormattedLabel(binding.propDomainLabel.value)
+            : getReadableName(binding.propDomain.value)
         );
       }
     }
@@ -399,6 +415,180 @@ function formatOntologyInspectionResult(inspection: {
   result += `## Total: ${domainCount} domain properties, ${rangeCount} range properties\n`;
 
   return result;
+}
+
+// Helper function to format a single value entry
+function formatValue(valueEntry: { value: string; label?: string }): string {
+  if (
+    valueEntry.value.startsWith("http://") ||
+    valueEntry.value.startsWith("https://")
+  ) {
+    return `    - ${valueEntry.value} (URI)\n`;
+  }
+  return `    - ${valueEntry.value}\n`;
+}
+
+// Helper function to format property section
+function formatPropertySection(
+  propertyIndex: number,
+  propertyUri: string,
+  values: Array<{ value: string; label?: string }>,
+  isExpanded: boolean,
+  valueLabel: string
+): string {
+  let section = `${propertyIndex}. ${propertyUri}\n`;
+
+  if (isExpanded) {
+    section += `   ${valueLabel} (${values.length}):\n`;
+    section += values.map(formatValue).join("");
+    section += `   📝 NOTE: Use inspectMetadata or inspectData to see full details\n`;
+  } else {
+    // Show preview of first few values
+    section += `   ${valueLabel} (${values.length}):\n`;
+    const limitedValues = values.slice(0, MAX_VALUES_TO_SHOW);
+    section += limitedValues.map(formatValue).join("");
+    if (values.length > MAX_VALUES_TO_SHOW) {
+      section += `    - ... and ${
+        values.length - MAX_VALUES_TO_SHOW
+      } more ${valueLabel.toLowerCase()}\n`;
+    }
+    section += `   📝 NOTE: Use inspectMetadata or inspectData to see full details\n`;
+    section += `   🔍 Use this in expand parameter to see all: ${propertyUri}\n`;
+  }
+  return section + "\n";
+}
+
+const MAX_VALUES_TO_SHOW = 2;
+
+function formatDataConnections(
+  uri: string,
+  outgoingData: Map<string, Array<{ value: string; label?: string }>>,
+  incomingData: Map<string, Array<{ value: string; label?: string }>>,
+  expandProperties: string[]
+): string {
+  let result = `# Data connections for: ${getReadableName(
+    uri
+  )}\nURI: <${uri}>\n\n`;
+
+  if (outgoingData.size > 0) {
+    result += `## Outgoing Properties (${outgoingData.size})\n*Properties where this URI is the subject*\n\n`;
+    let outgoingIndex = 1;
+    for (const [propertyUri, values] of outgoingData) {
+      result += formatPropertySection(
+        outgoingIndex++,
+        propertyUri,
+        values,
+        expandProperties.includes(propertyUri),
+        "Values"
+      );
+    }
+  }
+
+  if (incomingData.size > 0) {
+    result += `## Incoming Properties (${incomingData.size})\n*Properties where this URI is the object*\n\n`;
+    let incomingIndex = 1;
+    for (const [propertyUri, values] of incomingData) {
+      result += formatPropertySection(
+        incomingIndex++,
+        propertyUri,
+        values,
+        expandProperties.includes(propertyUri),
+        "Connected entities"
+      );
+    }
+  }
+
+  result += `## Summary\n- Total outgoing properties: ${outgoingData.size}\n- Total incoming properties: ${incomingData.size}\n`;
+  if (expandProperties.length > 0) {
+    result += `- Expanded properties: ${expandProperties.length}\n`;
+  } else {
+    result += `- To see values, use expand parameter with property URIs listed above\n`;
+  }
+
+  return result;
+}
+
+export async function inspectData(
+  uri: string,
+  sparqlEndpoint: string,
+  queryService: QueryService,
+  expandProperties: string[] = []
+): Promise<string> {
+  // Single query to get all connections with their values
+  const query = `
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+    PREFIX dc: <http://purl.org/dc/elements/1.1/>
+    PREFIX dct: <http://purl.org/dc/terms/>
+    PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+    
+    SELECT DISTINCT ?property ?direction ?value WHERE {
+      {
+        # Outgoing connections: uri -> property -> value
+        SELECT ?property ?value ?direction WHERE {
+          <${uri}> ?property ?value .
+          BIND("outgoing" AS ?direction)
+          FILTER(!isLiteral(?value) || lang(?value) = "" || lang(?value) = "en")
+        }
+      }
+      UNION
+      {
+        # Incoming connections: value -> property -> uri
+        SELECT ?property ?value ?direction WHERE {
+          ?value ?property <${uri}> .
+          BIND("incoming" AS ?direction)
+        }
+      }
+    }
+    GROUP BY ?direction ?property ?value
+    ORDER BY ?direction ?property ?value
+  `;
+
+  const bindings = await queryService.executeQuery(query, [sparqlEndpoint]);
+
+  if (!bindings || bindings.length === 0) {
+    return `No data connections found for URI: <${uri}>`;
+  }
+
+  // Group results by direction and property
+  const outgoingData = new Map<
+    string,
+    Array<{ value: string; label?: string }>
+  >();
+  const incomingData = new Map<
+    string,
+    Array<{ value: string; label?: string }>
+  >();
+
+  for (const binding of bindings) {
+    const propertyUri = binding.property?.value;
+    const direction = binding.direction?.value;
+    const value = binding.value?.value;
+
+    if (!propertyUri || !value) continue;
+
+    const valueEntry = { value, label: undefined };
+
+    if (direction === "outgoing") {
+      if (!outgoingData.has(propertyUri)) {
+        outgoingData.set(propertyUri, []);
+      }
+      outgoingData.get(propertyUri)!.push(valueEntry);
+    } else if (direction === "incoming") {
+      if (!incomingData.has(propertyUri)) {
+        incomingData.set(propertyUri, []);
+      }
+      incomingData.get(propertyUri)!.push(valueEntry);
+    }
+  }
+
+  return formatDataConnections(
+    uri,
+    outgoingData,
+    incomingData,
+    expandProperties
+  );
 }
 
 export async function inspectOntology(

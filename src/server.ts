@@ -24,7 +24,8 @@ Process (you may deviate if deemed necessary - be flexible!):
 2a) Use searchAll to find relevant classes and properties - be aware that this is a syntactic, fuzzy search.
 2b) In case, searchAll didn't return desired results, use semanticSearch to find relevant classes and properties. Here, you can structure your request more freely and flexibly.
 3) Use inspectMetadata to get more details about specific classes or properties, e.g. what properties you can use in a subsequent SPARQL query or what the domain and range of a property is.
-4) Use makeQuery to execute a SPARQL query against the Knowledge Graph. You can use the results from searchAll and inspectMetadata to construct your query.
+4) Use inspectData to explore actual data connections (incoming/outgoing relationships) for specific entities/instances from the knowledge graph.
+5) Use makeQuery to execute a SPARQL query against the Knowledge Graph. You can use the results from searchAll, inspectMetadata, and inspectData to construct your query.
 `,
     }
   );
@@ -201,11 +202,6 @@ Process (you may deviate if deemed necessary - be flexible!):
     },
     async (request: { uri: string }) => {
       const { uri } = request;
-
-      if (!uri) {
-        throw new Error("URI parameter is required");
-      }
-
       try {
         const result = await inspectionService.inspectMetadata(
           uri,
@@ -222,6 +218,50 @@ Process (you may deviate if deemed necessary - be flexible!):
         };
       } catch (error) {
         throw new Error(`Failed to inspect resource: ${error}`);
+      }
+    }
+  );
+
+  // Register the inspect data tool
+  server.registerTool(
+    "inspectData",
+    {
+      description:
+        'Inspect actual data connections for any URI (entity/instance) to see all incoming and outgoing relationships. Shows what properties connect to/from this entity and their values. Example: "http://dbpedia.org/resource/Julius_Caesar" (shows all relationships like birthDate, birthPlace, spouse, etc.)',
+      inputSchema: {
+        uri: z
+          .string()
+          .describe(
+            "The URI to inspect - should be an entity/instance URI (not a class or property)"
+          ),
+        expandProperties: z
+          .array(z.string())
+          .optional()
+          .default([])
+          .describe(
+            "Optional array of property URIs to expand and show all values for (by default only shows first few values)"
+          ),
+      },
+    },
+    async (request: { uri: string; expandProperties?: string[] }) => {
+      const { uri, expandProperties = [] } = request;
+      try {
+        const result = await inspectionService.inspectData(
+          uri,
+          sparqlEndpoint,
+          expandProperties
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
+            },
+          ],
+        };
+      } catch (error) {
+        throw new Error(`Failed to inspect data: ${error}`);
       }
     }
   );

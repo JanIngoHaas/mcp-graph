@@ -31,5 +31,29 @@ async function testInspectionProperty() {
     expect(result).toBeDefined();
 }
 
+async function testInspectMetadataProp() {
+    const metadata = await inspectionService.inspectMetadata('http://dbpedia.org/ontology/author', SPARQL_EP);
+    console.log('Inspect Metadata Result:\n', metadata);
+}
+
+async function testInspectMetadataClass() {
+    const metadata = await inspectionService.inspectMetadata('http://dbpedia.org/ontology/Animal', SPARQL_EP);
+    console.log('Inspect Metadata Class Result:\n', metadata);
+    expect(metadata).toBeDefined();
+}
+
+async function testInspectDataCaesar() {
+    const caesarUri = 'http://dbpedia.org/resource/Julius_Caesar';
+    const result = await inspectionService.inspectData(caesarUri, SPARQL_EP, ["http://xmlns.com/foaf/0.1/depiction"]);
+    console.log('Inspect Data Caesar Result:\n', result);
+    expect(result).toBeDefined();
+    expect(result.includes('Outgoing Properties')).toBeTruthy();
+    expect(result.includes('Incoming Properties')).toBeTruthy();
+    expect(result.includes('http://commons.wikimedia.org/wiki/Special:FilePath/Venus_and_Cupid_from_the_House_of_Marcus_Fabius_Rufus_at_Pompeii,_most_likely_a_depiction_of_Cleopatra_VII.jpg (URI)')).toBeTruthy();
+}
+
 test('Inspect Class', testInspectionClass, 300000);
 test('Inspect Property', testInspectionProperty, 300000);
+test('Inspect Metadata Property', testInspectMetadataProp, 300000);
+test('Inspect Metadata Class', testInspectMetadataClass, 300000);
+test('Inspect Data Caesar', testInspectDataCaesar, 300000);
