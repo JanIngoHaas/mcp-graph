@@ -7,7 +7,8 @@
     "@modelcontextprotocol/sdk": "1.17.0",
     "better-sqlite3": "12.2.0",
     "n3": "1.26.0",
-    "sqlite-vec": "v0.1.7-alpha.2",
+    "sharp": "^0.34.4",
+    "sqlite-vec": "0.1.6",
     "winston": "3.17.0",
     "winston-daily-rotate-file": "5.0.0",
     "zod": "3.25.76"

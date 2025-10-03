@@ -207,35 +207,43 @@ export class SearchService {
     PREFIX dct: <http://purl.org/dc/terms/>
     PREFIX dbo: <http://dbpedia.org/ontology/>
     PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-    SELECT DISTINCT ?uri ?label ?domain ?range ?domainLabel ?rangeLabel
+    SELECT DISTINCT ?uri ?label ?domain ?range ?domainLabel ?rangeLabel ?description
     WHERE {
       ?uri rdf:type ?propType .
       FILTER(?propType IN (rdf:Property, owl:ObjectProperty, owl:DatatypeProperty, owl:AnnotationProperty))
-      
+
       # Require domain and range - filter out useless properties
       ?uri rdfs:domain ?domain .
       ?uri rdfs:range ?range .
-      
+
       # Property label options
       OPTIONAL { ?uri rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
       OPTIONAL { ?uri skos:prefLabel ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
       OPTIONAL { ?uri dc:title ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
       OPTIONAL { ?uri dct:title ?dctTitle . FILTER(LANG(?dctTitle) = "en" || LANG(?dctTitle) = "") }
       OPTIONAL { ?uri foaf:name ?foafName . FILTER(LANG(?foafName) = "en" || LANG(?foafName) = "") }
-      
+
+      # Property description options
+      OPTIONAL { ?uri rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
+      OPTIONAL { ?uri skos:definition ?skosDefinition . FILTER(LANG(?skosDefinition) = "en" || LANG(?skosDefinition) = "") }
+      OPTIONAL { ?uri dc:description ?dcDescription . FILTER(LANG(?dcDescription) = "en" || LANG(?dcDescription) = "") }
+      OPTIONAL { ?uri dct:description ?dctDescription . FILTER(LANG(?dctDescription) = "en" || LANG(?dctDescription) = "") }
+      OPTIONAL { ?uri skos:note ?skosNote . FILTER(LANG(?skosNote) = "en" || LANG(?skosNote) = "") }
+
       # Domain label options
       OPTIONAL { ?domain rdfs:label ?domainRdfsLabel . FILTER(LANG(?domainRdfsLabel) = "en" || LANG(?domainRdfsLabel) = "") }
       OPTIONAL { ?domain skos:prefLabel ?domainSkosLabel . FILTER(LANG(?domainSkosLabel) = "en" || LANG(?domainSkosLabel) = "") }
       OPTIONAL { ?domain dc:title ?domainDcTitle . FILTER(LANG(?domainDcTitle) = "en" || LANG(?domainDcTitle) = "") }
-      
+
       # Range label options
       OPTIONAL { ?range rdfs:label ?rangeRdfsLabel . FILTER(LANG(?rangeRdfsLabel) = "en" || LANG(?rangeRdfsLabel) = "") }
       OPTIONAL { ?range skos:prefLabel ?rangeSkosLabel . FILTER(LANG(?rangeSkosLabel) = "en" || LANG(?rangeSkosLabel) = "") }
       OPTIONAL { ?range dc:title ?rangeDcTitle . FILTER(LANG(?rangeDcTitle) = "en" || LANG(?rangeDcTitle) = "") }
-      
+
       BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle, ?dctTitle, ?foafName, STR(?uri)) AS ?label)
       BIND(COALESCE(?domainRdfsLabel, ?domainSkosLabel, ?domainDcTitle, STR(?domain)) AS ?domainLabel)
       BIND(COALESCE(?rangeRdfsLabel, ?rangeSkosLabel, ?rangeDcTitle, STR(?range)) AS ?rangeLabel)
+      BIND(COALESCE(?rdfsComment, ?skosDefinition, ?dcDescription, ?dctDescription, ?skosNote) AS ?description)
 
       # Exclude meta-schemas and structural vocabularies
       FILTER(!CONTAINS(STR(?uri), "http://www.openlinksw.com/schemas/"))

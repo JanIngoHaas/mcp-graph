@@ -39,7 +39,7 @@ Process (you may deviate if deemed necessary - be flexible!):
     embeddingService,
     databaseHelper
   );
-  const inspectionService = new InspectionService(queryService);
+  const inspectionService = new InspectionService(queryService, embeddingService);
 
   // Initialize exploration on startup
   await searchService.exploreOntology(sparqlEndpoint, (processed, total) => {
@@ -198,14 +198,28 @@ Process (you may deviate if deemed necessary - be flexible!):
           .describe(
             "The URI to inspect - can be a property, class, something used as domain/range, or any other metadata URI"
           ),
+        relevantToQuery: z
+          .string()
+          .optional()
+          .describe(
+            "Optional query to filter and rank results by semantic relevance. Results will be ordered by similarity to this query."
+          ),
+        maxResults: z
+          .number()
+          .optional()
+          .describe(
+            "Maximum number of domain/range properties to return. Only applies when relevantToQuery is set or when you want to limit output."
+          ),
       },
     },
-    async (request: { uri: string }) => {
-      const { uri } = request;
+    async (request: { uri: string; relevantToQuery?: string; maxResults?: number }) => {
+      const { uri, relevantToQuery, maxResults } = request;
       try {
         const result = await inspectionService.inspectMetadata(
           uri,
-          sparqlEndpoint
+          sparqlEndpoint,
+          relevantToQuery,
+          maxResults
         );
 
         return {
@@ -241,15 +255,34 @@ Process (you may deviate if deemed necessary - be flexible!):
           .describe(
             "Optional array of property URIs to expand and show all values for (by default only shows first few values)"
           ),
+        relevantToQuery: z
+          .string()
+          .optional()
+          .describe(
+            "Optional query to filter and rank properties by semantic relevance. Results will be ordered by similarity to this query."
+          ),
+        maxResults: z
+          .number()
+          .optional()
+          .describe(
+            "Maximum number of properties to return per category (outgoing/incoming). Only applies when relevantToQuery is set or when you want to limit output."
+          ),
       },
     },
-    async (request: { uri: string; expandProperties?: string[] }) => {
-      const { uri, expandProperties = [] } = request;
+    async (request: {
+      uri: string;
+      expandProperties?: string[];
+      relevantToQuery?: string;
+      maxResults?: number;
+    }) => {
+      const { uri, expandProperties = [], relevantToQuery, maxResults } = request;
       try {
         const result = await inspectionService.inspectData(
           uri,
           sparqlEndpoint,
-          expandProperties
+          expandProperties,
+          relevantToQuery,
+          maxResults
         );
 
         return {

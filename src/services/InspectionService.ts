@@ -1,6 +1,8 @@
 import { getDisplayName } from "@modelcontextprotocol/sdk/shared/metadataUtils.js";
 import { getReadableName } from "../utils/formatting.js";
 import { QueryService } from "./QueryService.js";
+import { EmbeddingHelper } from "./EmbeddingHelper.js";
+import { cos_sim } from "@huggingface/transformers";
 
 /**
  * Checks if a label appears to be a URI (starts with http/https)
@@ -18,23 +20,46 @@ function getFormattedLabel(label: string): string {
 }
 
 export class InspectionService {
-  constructor(private queryService: QueryService) {
+  constructor(
+    private queryService: QueryService,
+    private embeddingHelper?: EmbeddingHelper
+  ) {
     this.queryService = queryService;
+    this.embeddingHelper = embeddingHelper;
   }
 
   public async inspectMetadata(
     uri: string,
-    sparqlEndpoint: string
+    sparqlEndpoint: string,
+    relevantToQuery?: string,
+    maxResults?: number
   ): Promise<string> {
-    return await inspectMetadata(uri, sparqlEndpoint, this.queryService);
+    return await inspectMetadata(
+      uri,
+      sparqlEndpoint,
+      this.queryService,
+      this.embeddingHelper,
+      relevantToQuery,
+      maxResults
+    );
   }
 
   public async inspectData(
     uri: string,
     sparqlEndpoint: string,
-    expandProperties: string[] = []
+    expandProperties: string[] = [],
+    relevantToQuery?: string,
+    maxResults?: number
   ): Promise<string> {
-    return await inspectData(uri, sparqlEndpoint, this.queryService, expandProperties);
+    return await inspectData(
+      uri,
+      sparqlEndpoint,
+      this.queryService,
+      expandProperties,
+      this.embeddingHelper,
+      relevantToQuery,
+      maxResults
+    );
   }
 }
 
@@ -295,15 +320,20 @@ async function inspectClass(
   };
 }
 
-function formatPropertyInspectionResult(inspection: {
-  uri: string;
-  label: string;
-  description?: string;
-  domains: Map<string, string>;
-  ranges: Map<string, string>;
-  domainHierarchies: Map<string, string>;
-  rangeHierarchies: Map<string, string>;
-}): string {
+async function formatPropertyInspectionResult(
+  inspection: {
+    uri: string;
+    label: string;
+    description?: string;
+    domains: Map<string, string>;
+    ranges: Map<string, string>;
+    domainHierarchies: Map<string, string>;
+    rangeHierarchies: Map<string, string>;
+  },
+  embeddingHelper?: EmbeddingHelper,
+  relevantToQuery?: string,
+  maxResults?: number
+): Promise<string> {
   let result = `# Property: ${inspection.label}\nURI: <${inspection.uri}>\n\n`;
 
   // Add description if available
@@ -311,108 +341,194 @@ function formatPropertyInspectionResult(inspection: {
     result += `## Description\n${inspection.description}\n\n`;
   }
 
+  // Filter domains by relevance if query provided
+  let filteredDomains = Array.from(inspection.domains.entries());
+  let filteredRanges = Array.from(inspection.ranges.entries());
+
+  if (relevantToQuery && embeddingHelper) {
+    const [domainScores, rangeScores] = await Promise.all([
+      rankByRelevance(
+        filteredDomains.map(([uri, label]) => `${label}: ${uri}`),
+        relevantToQuery,
+        embeddingHelper
+      ),
+      rankByRelevance(
+        filteredRanges.map(([uri, label]) => `${label}: ${uri}`),
+        relevantToQuery,
+        embeddingHelper
+      ),
+    ]);
+
+    filteredDomains = filteredDomains
+      .map(([uri, label], idx) => ({ uri, label, score: domainScores[idx] }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxResults || filteredDomains.length)
+      .map(({ uri, label }) => [uri, label] as [string, string]);
+
+    filteredRanges = filteredRanges
+      .map(([uri, label], idx) => ({ uri, label, score: rangeScores[idx] }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxResults || filteredRanges.length)
+      .map(({ uri, label }) => [uri, label] as [string, string]);
+  } else if (maxResults) {
+    filteredDomains = filteredDomains.slice(0, maxResults);
+    filteredRanges = filteredRanges.slice(0, maxResults);
+  }
+
   // Add domain information with hierarchy
-  if (inspection.domains.size > 0) {
+  if (filteredDomains.length > 0) {
     result += `## Domain Classes (subjects that can use this property)\n`;
-    result += `*Note: All classes in the inheritance chain can use this property*\n`;
-    for (const [uri, label] of inspection.domains) {
+    for (const [uri, label] of filteredDomains) {
       result += `- <${uri}>: ${label}\n`;
       const hierarchy = inspection.domainHierarchies.get(uri);
       if (hierarchy) {
-        result += `  Class hierarchy: ${hierarchy}\n`;
-        result += `  (All classes in this chain can use this property)\n`;
+        result += `  Hierarchy: ${hierarchy}\n`;
       }
-      result += `  SPARQL Example: Find instances of type '${label}' using this property:\n    ?${label
-        .toLowerCase()
-        .replace(/\s+/g, "")}Instance a <${uri}> .\n    ?${label
-        .toLowerCase()
-        .replace(/\s+/g, "")}Instance <${inspection.uri}> ?value .\n\n`;
     }
     result += "\n";
   }
 
   // Add range information with hierarchy
-  if (inspection.ranges.size > 0) {
+  if (filteredRanges.length > 0) {
     result += `## Range Classes (objects this property can point to)\n`;
-    result += `*Note: All classes in the inheritance chain can be values for this property*\n`;
-    for (const [uri, label] of inspection.ranges) {
+    for (const [uri, label] of filteredRanges) {
       result += `- <${uri}>: ${label}\n`;
       const hierarchy = inspection.rangeHierarchies.get(uri);
       if (hierarchy) {
-        result += `  Class hierarchy: ${hierarchy}\n`;
-        result += `  (All classes in this chain can be values for this property)\n`;
+        result += `  Hierarchy: ${hierarchy}\n`;
       }
-      result += `  SPARQL Example: Find entities pointing to '${label}' instances:\n    ?entity <${
-        inspection.uri
-      }> ?${label.toLowerCase().replace(/\s+/g, "")}Instance .\n    ?${label
-        .toLowerCase()
-        .replace(/\s+/g, "")}Instance a <${uri}> .\n\n`;
     }
     result += "\n";
   }
 
   // Add general SPARQL example
-  result += `## General SPARQL Usage:\n`;
-  result += `?subject <${inspection.uri}> ?object .\n`;
-  result += `# This property connects domain class instances to range class instances\n\n`;
+  result += `## SPARQL Usage:\n`;
+  result += `?subject <${inspection.uri}> ?object\n\n`;
 
   // Add summary
-  const domainCount = inspection.domains.size;
-  const rangeCount = inspection.ranges.size;
-  result += `## Total: ${domainCount} domain${
-    domainCount !== 1 ? "s" : ""
-  }, ${rangeCount} range${rangeCount !== 1 ? "s" : ""}\n`;
+  const domainCount = filteredDomains.length;
+  const rangeCount = filteredRanges.length;
+  const totalDomains = inspection.domains.size;
+  const totalRanges = inspection.ranges.size;
+
+  if (relevantToQuery || maxResults) {
+    result += `## Showing: ${domainCount} of ${totalDomains} domains, ${rangeCount} of ${totalRanges} ranges`;
+    if (relevantToQuery) {
+      result += ` (filtered by: "${relevantToQuery}")`;
+    }
+    result += `\n`;
+  } else {
+    result += `## Total: ${domainCount} domains, ${rangeCount} ranges\n`;
+  }
 
   return result;
 }
 
-function formatOntologyInspectionResult(inspection: {
-  ranges: Map<string, string>;
-  domains: Map<string, string>;
-  label: string;
-  description?: string;
-  uri: string;
-}): string {
+async function rankByRelevance(
+  texts: string[],
+  query: string,
+  embeddingHelper: EmbeddingHelper
+): Promise<number[]> {
+  const queryEmbedding: Float32Array[] = [];
+  const textEmbeddings: Float32Array[] = [];
+
+  // Get query embedding with instruction (for property relevance matching)
+  await embeddingHelper.embed([query], "query_property", async (_, embeddings) => {
+    queryEmbedding.push(...embeddings);
+  });
+
+  // Get text embeddings without instruction (these are already formatted descriptions)
+  await embeddingHelper.embed(texts, "none", async (_, embeddings) => {
+    textEmbeddings.push(...embeddings);
+  });
+
+  // Calculate similarities using transformers' cos_sim
+  return textEmbeddings.map((textEmbed) =>
+    cos_sim(Array.from(queryEmbedding[0]), Array.from(textEmbed))
+  );
+}
+
+async function formatOntologyInspectionResult(
+  inspection: {
+    ranges: Map<string, string>;
+    domains: Map<string, string>;
+    label: string;
+    description?: string;
+    uri: string;
+  },
+  embeddingHelper?: EmbeddingHelper,
+  relevantToQuery?: string,
+  maxResults?: number
+): Promise<string> {
   let result = `# Class: ${inspection.label}\nURI: <${inspection.uri}>\n\n`;
 
   if (inspection.description) {
     result += `## Description\n${inspection.description}\n\n`;
   }
 
-  if (inspection.domains.size > 0) {
-    result += `## This class is the DOMAIN of the following properties\n`;
-    result += `SPARQL Example: Get values for a '${inspection.label}' instance:\n`;
-    result += ` ?${inspection.label
-      .toLowerCase()
-      .replace(/\s+/g, "")}Instance a <${inspection.uri}> .\n`;
-    result += ` ?${inspection.label
-      .toLowerCase()
-      .replace(/\s+/g, "")}Instance <PROPERTY_FROM_LIST_BELOW> ?value .\n\n`;
-    for (const [uri, label] of inspection.domains) {
+  let filteredDomains = Array.from(inspection.domains.entries());
+  let filteredRanges = Array.from(inspection.ranges.entries());
+
+  if (relevantToQuery && embeddingHelper) {
+    const [domainScores, rangeScores] = await Promise.all([
+      rankByRelevance(
+        filteredDomains.map(([uri, label]) => `${label}: ${uri}`),
+        relevantToQuery,
+        embeddingHelper
+      ),
+      rankByRelevance(
+        filteredRanges.map(([uri, label]) => `${label}: ${uri}`),
+        relevantToQuery,
+        embeddingHelper
+      ),
+    ]);
+
+    filteredDomains = filteredDomains
+      .map(([uri, label], idx) => ({ uri, label, score: domainScores[idx] }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxResults || filteredDomains.length)
+      .map(({ uri, label }) => [uri, label] as [string, string]);
+
+    filteredRanges = filteredRanges
+      .map(([uri, label], idx) => ({ uri, label, score: rangeScores[idx] }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxResults || filteredRanges.length)
+      .map(({ uri, label }) => [uri, label] as [string, string]);
+  } else if (maxResults) {
+    filteredDomains = filteredDomains.slice(0, maxResults);
+    filteredRanges = filteredRanges.slice(0, maxResults);
+  }
+
+  if (filteredDomains.length > 0) {
+    result += `## Domain properties\n`;
+    for (const [uri, label] of filteredDomains) {
       result += `- <${uri}>: ${label}\n`;
     }
     result += "\n";
   }
 
-  if (inspection.ranges.size > 0) {
-    result += `## This class is the RANGE of the following properties\n`;
-    result += `SPARQL Example: Find entities that point to a '${inspection.label}'\n`;
-    result += ` ?${inspection.label
-      .toLowerCase()
-      .replace(/\s+/g, "")}Instance a <${inspection.uri}> .\n`;
-    result += ` ?entity <PROPERTY_FROM_LIST_BELOW> ?${inspection.label
-      .toLowerCase()
-      .replace(/\s+/g, "")}Instance .\n\n`;
-    for (const [uri, label] of inspection.ranges) {
+  if (filteredRanges.length > 0) {
+    result += `## Range properties\n`;
+    for (const [uri, label] of filteredRanges) {
       result += `- <${uri}>: ${label}\n`;
     }
     result += "\n";
   }
 
-  // Add summary
-  const domainCount = inspection.domains.size;
-  const rangeCount = inspection.ranges.size;
-  result += `## Total: ${domainCount} domain properties, ${rangeCount} range properties\n`;
+  const domainCount = filteredDomains.length;
+  const rangeCount = filteredRanges.length;
+  const totalDomains = inspection.domains.size;
+  const totalRanges = inspection.ranges.size;
+
+  if (relevantToQuery || maxResults) {
+    result += `## Showing: ${domainCount} of ${totalDomains} domain properties, ${rangeCount} of ${totalRanges} range properties`;
+    if (relevantToQuery) {
+      result += ` (filtered by: "${relevantToQuery}")`;
+    }
+    result += `\n`;
+  } else {
+    result += `## Total: ${domainCount} domain properties, ${rangeCount} range properties\n`;
+  }
 
   return result;
 }
@@ -441,7 +557,6 @@ function formatPropertySection(
   if (isExpanded) {
     section += `   ${valueLabel} (${values.length}):\n`;
     section += values.map(formatValue).join("");
-    section += `   📝 NOTE: Use inspectMetadata or inspectData to see full details\n`;
   } else {
     // Show preview of first few values
     section += `   ${valueLabel} (${values.length}):\n`;
@@ -452,28 +567,66 @@ function formatPropertySection(
         values.length - MAX_VALUES_TO_SHOW
       } more ${valueLabel.toLowerCase()}\n`;
     }
-    section += `   📝 NOTE: Use inspectMetadata or inspectData to see full details\n`;
-    section += `   🔍 Use this in expand parameter to see all: ${propertyUri}\n`;
   }
   return section + "\n";
 }
 
 const MAX_VALUES_TO_SHOW = 2;
 
-function formatDataConnections(
+async function formatDataConnections(
   uri: string,
   outgoingData: Map<string, Array<{ value: string; label?: string }>>,
   incomingData: Map<string, Array<{ value: string; label?: string }>>,
-  expandProperties: string[]
-): string {
+  expandProperties: string[],
+  embeddingHelper?: EmbeddingHelper,
+  relevantToQuery?: string,
+  maxResults?: number
+): Promise<string> {
   let result = `# Data connections for: ${getReadableName(
     uri
   )}\nURI: <${uri}>\n\n`;
 
-  if (outgoingData.size > 0) {
-    result += `## Outgoing Properties (${outgoingData.size})\n*Properties where this URI is the subject*\n\n`;
+  let filteredOutgoing = Array.from(outgoingData.entries());
+  let filteredIncoming = Array.from(incomingData.entries());
+
+  // Filter by relevance if query provided
+  if (relevantToQuery && embeddingHelper) {
+    const [outgoingScores, incomingScores] = await Promise.all([
+      rankByRelevance(
+        filteredOutgoing.map(([uri, _]) => getReadableName(uri)),
+        relevantToQuery,
+        embeddingHelper
+      ),
+      rankByRelevance(
+        filteredIncoming.map(([uri, _]) => getReadableName(uri)),
+        relevantToQuery,
+        embeddingHelper
+      ),
+    ]);
+
+    filteredOutgoing = filteredOutgoing
+      .map(([uri, values], idx) => ({ uri, values, score: outgoingScores[idx] }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxResults || filteredOutgoing.length)
+      .map(({ uri, values }) => [uri, values] as [string, Array<{ value: string; label?: string }>]);
+
+    filteredIncoming = filteredIncoming
+      .map(([uri, values], idx) => ({ uri, values, score: incomingScores[idx] }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxResults || filteredIncoming.length)
+      .map(({ uri, values }) => [uri, values] as [string, Array<{ value: string; label?: string }>]);
+  } else if (maxResults) {
+    filteredOutgoing = filteredOutgoing.slice(0, maxResults);
+    filteredIncoming = filteredIncoming.slice(0, maxResults);
+  }
+
+  if (filteredOutgoing.length > 0) {
+    result += `## Properties (${filteredOutgoing.length}${
+      relevantToQuery || maxResults ? ` of ${outgoingData.size}` : ""
+    })\n`;
+    result += `*<${uri}> --[property]--> value*\n\n`;
     let outgoingIndex = 1;
-    for (const [propertyUri, values] of outgoingData) {
+    for (const [propertyUri, values] of filteredOutgoing) {
       result += formatPropertySection(
         outgoingIndex++,
         propertyUri,
@@ -484,10 +637,13 @@ function formatDataConnections(
     }
   }
 
-  if (incomingData.size > 0) {
-    result += `## Incoming Properties (${incomingData.size})\n*Properties where this URI is the object*\n\n`;
+  if (filteredIncoming.length > 0) {
+    result += `## References (${filteredIncoming.length}${
+      relevantToQuery || maxResults ? ` of ${incomingData.size}` : ""
+    })\n`;
+    result += `*entity --[property]--> <${uri}>*\n\n`;
     let incomingIndex = 1;
-    for (const [propertyUri, values] of incomingData) {
+    for (const [propertyUri, values] of filteredIncoming) {
       result += formatPropertySection(
         incomingIndex++,
         propertyUri,
@@ -498,11 +654,15 @@ function formatDataConnections(
     }
   }
 
-  result += `## Summary\n- Total outgoing properties: ${outgoingData.size}\n- Total incoming properties: ${incomingData.size}\n`;
-  if (expandProperties.length > 0) {
-    result += `- Expanded properties: ${expandProperties.length}\n`;
+  result += `## Summary\n`;
+  if (relevantToQuery || maxResults) {
+    result += `- Showing: ${filteredOutgoing.length} of ${outgoingData.size} properties, ${filteredIncoming.length} of ${incomingData.size} references`;
+    if (relevantToQuery) {
+      result += ` (filtered by: "${relevantToQuery}")`;
+    }
+    result += `\n`;
   } else {
-    result += `- To see values, use expand parameter with property URIs listed above\n`;
+    result += `- Total: ${outgoingData.size} properties, ${incomingData.size} references\n`;
   }
 
   return result;
@@ -512,7 +672,10 @@ export async function inspectData(
   uri: string,
   sparqlEndpoint: string,
   queryService: QueryService,
-  expandProperties: string[] = []
+  expandProperties: string[] = [],
+  embeddingHelper?: EmbeddingHelper,
+  relevantToQuery?: string,
+  maxResults?: number
 ): Promise<string> {
   // Single query to get all connections with their values
   const query = `
@@ -522,7 +685,7 @@ export async function inspectData(
     PREFIX dc: <http://purl.org/dc/elements/1.1/>
     PREFIX dct: <http://purl.org/dc/terms/>
     PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-    
+
     SELECT DISTINCT ?property ?direction ?value WHERE {
       {
         # Outgoing connections: uri -> property -> value
@@ -583,24 +746,35 @@ export async function inspectData(
     }
   }
 
-  return formatDataConnections(
+  return await formatDataConnections(
     uri,
     outgoingData,
     incomingData,
-    expandProperties
+    expandProperties,
+    embeddingHelper,
+    relevantToQuery,
+    maxResults
   );
 }
 
 export async function inspectOntology(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryService
+  queryService: QueryService,
+  embeddingHelper?: EmbeddingHelper,
+  relevantToQuery?: string,
+  maxResults?: number
 ): Promise<string> {
   // First try to inspect as a class
   const classResult = await inspectClass(uri, sparqlEndpoint, queryService);
 
   if (classResult.ranges.size > 0 || classResult.domains.size > 0) {
-    return formatOntologyInspectionResult(classResult);
+    return await formatOntologyInspectionResult(
+      classResult,
+      embeddingHelper,
+      relevantToQuery,
+      maxResults
+    );
   }
 
   // If not a class, try to inspect as a property
@@ -611,7 +785,12 @@ export async function inspectOntology(
   );
 
   if (propertyResult) {
-    return formatPropertyInspectionResult(propertyResult);
+    return await formatPropertyInspectionResult(
+      propertyResult,
+      embeddingHelper,
+      relevantToQuery,
+      maxResults
+    );
   }
 
   return `No class or property information found for URI: <${uri}>`;
@@ -620,7 +799,17 @@ export async function inspectOntology(
 async function inspectMetadata(
   uri: string,
   sparqlEndpoint: string,
-  queryService: QueryService
+  queryService: QueryService,
+  embeddingHelper?: EmbeddingHelper,
+  relevantToQuery?: string,
+  maxResults?: number
 ): Promise<string> {
-  return await inspectOntology(uri, sparqlEndpoint, queryService);
+  return await inspectOntology(
+    uri,
+    sparqlEndpoint,
+    queryService,
+    embeddingHelper,
+    relevantToQuery,
+    maxResults
+  );
 }

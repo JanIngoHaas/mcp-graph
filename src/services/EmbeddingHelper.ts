@@ -1,5 +1,4 @@
 import { FeatureExtractionPipeline, pipeline } from "@huggingface/transformers";
-import * as ort from "onnxruntime-node";
 import Logger from "../utils/logger.js";
 
 export class EmbeddingHelper {
