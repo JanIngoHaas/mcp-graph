@@ -5,11 +5,9 @@
     "@comunica/query-sparql": "4.3.0",
     "@huggingface/transformers": "3.7.0",
     "@modelcontextprotocol/sdk": "1.17.0",
-    "@types/sparqljs": "3.1.12",
     "better-sqlite3": "12.2.0",
     "n3": "1.26.0",
-    "sparqljs": "3.7.3",
-    "sqlite-vec": "0.1.6",
+    "sqlite-vec": "v0.1.7-alpha.2",
     "winston": "3.17.0",
     "winston-daily-rotate-file": "5.0.0",
     "zod": "3.25.76"

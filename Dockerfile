@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM node:24-bookworm
 
 # Install Node.js 23 and all dependencies
 RUN apt-get update && apt-get install -y \
@@ -8,8 +8,6 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     sqlite3 \
     ca-certificates \
-    && curl -fsSL https://deb.nodesource.com/setup_23.x | bash - \
-    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -26,8 +24,8 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
-# Clean up dev dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Clean up dev dependencies  
+RUN npm install --only=production && npm cache clean --force
 
 # Create data directory for database
 RUN mkdir -p /app/data

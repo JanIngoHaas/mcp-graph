@@ -22,10 +22,10 @@ export async function createServer(
 Process (you may deviate if deemed necessary - be flexible!):
 1) Identify key terms in the user's query.
 2a) Use searchAll to find relevant classes and properties - be aware that this is a syntactic, fuzzy search.
-2b) In case, searchAll didn't return desired results, use semanticSearch to find relevant classes and properties. Here, you can structure your request more freely and flexibly.
+2b) In case, searchAll didn't return desired results, use searchOntology to find relevant classes and properties. Here, you can structure your request more freely and flexibly.
 3) Use inspectMetadata to get more details about specific classes or properties, e.g. what properties you can use in a subsequent SPARQL query or what the domain and range of a property is.
 4) Use inspectData to explore actual data connections (incoming/outgoing relationships) for specific entities/instances from the knowledge graph.
-5) Use makeQuery to execute a SPARQL query against the Knowledge Graph. You can use the results from searchAll, inspectMetadata, and inspectData to construct your query.
+5) Use querySparql to execute a SPARQL query against the Knowledge Graph. You can use the results from searchAll, inspectMetadata, and inspectData to construct your query.
 `,
     }
   );
@@ -57,10 +57,10 @@ Process (you may deviate if deemed necessary - be flexible!):
   }
 
   server.registerTool(
-    "makeQuery",
+    "querySparql",
     {
       description:
-        "Send a SPARQL query to the Knowledge Graph. Search for useable properties first to know what to query.",
+        "Execute a SPARQL query against the Knowledge Graph. Search for useable properties first to know what to query.",
       inputSchema: {
         query: z
           .string()
@@ -86,7 +86,7 @@ Process (you may deviate if deemed necessary - be flexible!):
 
   // Register the semantic search tool
   server.registerTool(
-    "semanticSearch",
+    "searchOntology",
     {
       description:
         'Search for RDF ontological constructs using semantic similarity. Specify whether to search for classes or properties. Returns ontology URIs - use inspectMetadata for full details. Examples: "person birth date" (finds birthDate property), "location coordinates" (finds geographic properties), "organization concept" (finds Organization class)',

@@ -45,7 +45,7 @@ export class EmbeddingHelper {
         case "query_class":
           return `Instruct: Given a web search query, retrieve relevant ontological classes from a knowledge graph.\nQuery: ${t}`;
         case "query_property":
-          return `Instruct: Given a web search query, retrieve relevant ontological properties from a knowledge graph. Properties are formatted as [Domain]--[Property]-->[Range].\nQuery: ${t}`;
+          return `Instruct: Given a web search query, retrieve relevant ontological property descriptions from a knowledge graph.\nQuery: ${t}`;
         case "none":
         default:
           return t;

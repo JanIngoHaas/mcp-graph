@@ -44,7 +44,6 @@ export class DatabaseHelper {
         ontology_uri TEXT PRIMARY KEY,
         ontology_label TEXT NOT NULL,
         ontology_description TEXT,
-        sparql_endpoint TEXT NOT NULL,
         embedding FLOAT[1024] distance_metric=cosine
       );
       
@@ -52,7 +51,6 @@ export class DatabaseHelper {
         ontology_uri TEXT PRIMARY KEY,
         ontology_label TEXT NOT NULL,
         ontology_description TEXT,
-        sparql_endpoint TEXT NOT NULL,
         embedding FLOAT[1024] distance_metric=cosine
       );
     `);
@@ -62,20 +60,14 @@ export class DatabaseHelper {
     if (!sparqlEndpoint) return false;
 
     const db = await this.getDatabase();
-    const classStmt = db.prepare(
-      "SELECT COUNT(*) as count FROM class_index WHERE sparql_endpoint = ?"
-    );
-    const propertyStmt = db.prepare(
-      "SELECT COUNT(*) as count FROM property_index WHERE sparql_endpoint = ?"
+    const stmt = db.prepare(
+      "SELECT COUNT(*) as count FROM endpoint_info WHERE sparql_endpoint = ?"
     );
 
-    const classResult = classStmt.get(sparqlEndpoint) as { count: number };
-    const propertyResult = propertyStmt.get(sparqlEndpoint) as {
-      count: number;
-    };
+    const result = stmt.get(sparqlEndpoint) as { count: number };
 
-    // Need exploration if no data exists for this endpoint in either table
-    return classResult.count === 0 && propertyResult.count === 0;
+    // Need exploration if this endpoint hasn't been indexed yet
+    return result.count === 0;
   }
 
   async recordEndpoint(sparqlEndpoint: string): Promise<void> {
@@ -101,8 +93,8 @@ export class DatabaseHelper {
 
     // Use single bulk insert statement
     const bulkInsertQuery = `
-      INSERT OR REPLACE INTO class_index (ontology_uri, ontology_label, ontology_description, sparql_endpoint, embedding)
-      VALUES ${classItems.map(() => `(?, ?, ?, ?, ?)`).join(", ")}
+      INSERT OR REPLACE INTO class_index (ontology_uri, ontology_label, ontology_description, embedding)
+      VALUES ${classItems.map(() => `(?, ?, ?, ?)`).join(", ")}
     `;
 
     const allParams: any[] = [];
@@ -112,7 +104,6 @@ export class DatabaseHelper {
         classItem.uri,
         classItem.label || "",
         classItem.description || "",
-        sparqlEndpoint,
         JSON.stringify(Array.from(embedding))
       );
     });
@@ -137,8 +128,8 @@ export class DatabaseHelper {
 
     // Use single bulk insert statement
     const bulkInsertQuery = `
-      INSERT OR REPLACE INTO property_index (ontology_uri, ontology_label, ontology_description, sparql_endpoint, embedding)
-      VALUES ${propertyItems.map(() => `(?, ?, ?, ?, ?)`).join(", ")}
+      INSERT OR REPLACE INTO property_index (ontology_uri, ontology_label, ontology_description, embedding)
+      VALUES ${propertyItems.map(() => `(?, ?, ?, ?)`).join(", ")}
     `;
 
     const allParams: any[] = [];
@@ -148,7 +139,6 @@ export class DatabaseHelper {
         propertyItem.uri,
         propertyItem.label || "",
         propertyItem.description || "",
-        sparqlEndpoint,
         JSON.stringify(Array.from(embedding))
       );
     });
@@ -164,7 +154,6 @@ export class DatabaseHelper {
   private async searchGeneric(
     queryVector: Float32Array,
     tableName: string,
-    sparqlEndpoint: string,
     limit: number = 10
   ): Promise<
     Array<{
@@ -183,14 +172,14 @@ export class DatabaseHelper {
         ontology_description,
         distance
       FROM ${tableName}
-      WHERE embedding MATCH ? AND sparql_endpoint = ?
+      WHERE embedding MATCH ?
       ORDER BY distance
       LIMIT ?
     `);
 
     const queryVectorStr = JSON.stringify(Array.from(queryVector));
 
-    const results = searchStmt.all(queryVectorStr, sparqlEndpoint, limit);
+    const results = searchStmt.all(queryVectorStr, limit);
     results.sort((a: any, b: any) => a.distance - b.distance);
 
     return results.map((row: any) => {
@@ -208,7 +197,6 @@ export class DatabaseHelper {
   async searchOntologyWithVector(
     queryVector: Float32Array,
     searchType: "class" | "property",
-    sparqlEndpoint: string,
     limit: number = 10
   ): Promise<
     Array<{
@@ -225,6 +213,6 @@ export class DatabaseHelper {
       tableName = "property_index";
     }
 
-    return this.searchGeneric(queryVector, tableName, sparqlEndpoint, limit);
+    return this.searchGeneric(queryVector, tableName, limit);
   }
 }

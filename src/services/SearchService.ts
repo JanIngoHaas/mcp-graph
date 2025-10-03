@@ -124,13 +124,13 @@ export class SearchService {
       const rawLabel = binding.label?.value;
       const domainLabel = binding.domainLabel?.value;
       const rangeLabel = binding.rangeLabel?.value;
+      const existingDescription = binding.description?.value;
 
       if (!ontologyUri || !domainLabel || !rangeLabel) continue;
 
       const label = getFormattedLabel(rawLabel);
 
-      // Generate smart property description
-      const smartDescription = generatePropertyDescription(
+      const description = existingDescription || generatePropertyDescription(
         label,
         domainLabel,
         rangeLabel
@@ -139,7 +139,7 @@ export class SearchService {
       if (!propertyMap.has(ontologyUri)) {
         propertyMap.set(ontologyUri, {
           uri: ontologyUri,
-          description: smartDescription,
+          description,
           label,
         });
       }
@@ -289,7 +289,6 @@ export class SearchService {
     const results = await this.databaseHelper.searchOntologyWithVector(
       queryVector,
       searchType,
-      sparqlEndpoint,
       limit
     );
 
@@ -414,16 +413,18 @@ export class SearchService {
       return "No similar ontological constructs found. Try a different query or the ontological constructs you're looking for might not be in the knowledge graph.";
     }
 
-    return results
+    const formattedResults = results
       .map(
         (res: any) =>
           `**${res.label || getReadableName(res.uri)}**\n   - URI: ${
             res.uri
           }\n   - Similarity: ${res.similarity}\n   - Description: ${
             res.description || "No description available"
-          }\n   - Use inspectMetadata to see full details`
+          }`
       )
       .join("\n\n");
+
+    return `${formattedResults}\n\nUse inspectMetadata to see full details for any URI.`;
   }
 
   private async saveClassesWithEmbeddings(

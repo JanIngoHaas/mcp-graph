@@ -96,10 +96,11 @@ The `ExplorationService` class provides:
 
 Once running, the server provides these tools:
 
-1. **`makeQuery`** - Execute SPARQL queries against the knowledge graph
+1. **`querySparql`** - Execute SPARQL queries against the knowledge graph
 2. **`searchOntology`** - Semantic search for RDF ontological constructs using embeddings
 3. **`searchAll`** - Full-text search for any RDF entities
-4. **`inspectURI`** - Detailed inspection of any URI (classes show properties with domain/range, properties show domain-range relationships)
+4. **`inspectMetadata`** - Detailed inspection of any metadata URI (classes show properties with domain/range, properties show domain-range relationships)
+5. **`inspectData`** - Detailed inspection of data/instance URIs (shows incoming/outgoing relationships)
 
 ## Development Notes
 

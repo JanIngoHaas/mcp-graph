@@ -18,7 +18,7 @@ This server provides tools for exploring SPARQL endpoints and RDF data sources. 
 
 Once running, the server provides these tools to MCP clients:
 
-1. **`makeQuery`** - Execute SPARQL queries against the knowledge graph
+1. **`querySparql`** - Execute SPARQL queries against the knowledge graph
 2. **`searchOntology`** - Semantic search for RDF ontological constructs (i.e. metadata) using embeddings
 3. **`searchAll`** - Full-text search for any RDF entities
 4. **`inspectMetadata`** - Detailed inspection of any metadata URI (classes show properties with domain/range, properties show domain-range relationships)
@@ -73,7 +73,8 @@ Now, you can use the following config file in your favourite MCP Client
 {
   "mcpServers": {
     "sparql-mcp": {
-      "command": "sparql-mcp",
+      "command": "npx",
+      "arg": ["sparql-mcp"],
       "env": {
         "SPARQL_ENDPOINT": "https://dbpedia.org/sparql",
         "DB_PATH": ":cache:"
