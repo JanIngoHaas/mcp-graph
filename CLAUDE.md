@@ -102,6 +102,55 @@ Once running, the server provides these tools:
 4. **`inspectMetadata`** - Detailed inspection of any metadata URI (classes show properties with domain/range, properties show domain-range relationships)
 5. **`inspectData`** - Detailed inspection of data/instance URIs (shows incoming/outgoing relationships)
 
+## Planned Improvements
+
+### Agentic Workflow Enhancement
+
+The current tool set requires agents to make too many decisions and context switches. Planned improvements:
+
+#### 1. Unified Search Tool
+- **Problem**: Split between `searchOntology` (semantic) and `searchAll` (syntactic) creates cognitive friction
+- **Solution**: Combine into single intelligent search that runs both approaches simultaneously
+- **Benefits**:
+  - Eliminates "which search should I use?" decision
+  - Merges and ranks results from multiple methods
+  - Auto-categorizes findings (classes, properties, entities)
+  - Suggests contextually relevant next steps
+
+#### 2. Context-Aware Inspection
+- **Problem**: `inspectMetadata` returns overwhelming property lists without prioritization
+- **Solution**: Make inspection results conversation-aware
+- **Benefits**:
+  - Filter properties by relevance to user's research goal
+  - Remember previously explored concepts to avoid repetition
+  - Suggest logical next exploration steps based on current findings
+  - Progressive disclosure (show top 3-5 relevant items, with "explore more" options)
+
+#### 3. Query Construction Assistant
+- **Problem**: Large gap between inspection results and SPARQL query construction
+- **Solution**: Add query builder tool that bridges discovery to execution
+- **Benefits**:
+  - Suggests SPARQL patterns based on inspection results
+  - Validates queries before execution
+  - Provides natural language query explanations
+  - Templates for common query patterns
+
+#### 4. Research Session Context
+- **Problem**: Each tool call is isolated, agents lose research thread
+- **Solution**: Maintain conversation state and research context
+- **Benefits**:
+  - Track user's apparent research goal across interactions
+  - Avoid re-suggesting already explored paths
+  - Connect new findings to previous discoveries
+  - Explain significance of results in research context
+
+### Design Philosophy Shift
+Transform from **data access tool collection** to **intelligent research assistant** that:
+- Understands agent's exploration intent
+- Guides discovery rather than overwhelming with options
+- Reduces cognitive load while increasing insight quality
+- Maintains research continuity across interactions
+
 ## Development Notes
 
 - The server implements vector similarity search with automatic ontology exploration
