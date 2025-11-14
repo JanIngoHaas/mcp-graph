@@ -1,56 +1,81 @@
-import { beforeAll, test, expect, beforeEach } from 'vitest';
+import { beforeAll, test, expect } from 'vitest';
 import { QueryService } from '../../dist/services/QueryService.js';
 import { SearchService } from '../../dist/services/SearchService.js';
-import { EmbeddingHelper } from '../../dist/services/EmbeddingHelper.js';
-import { DatabaseHelper } from '../../dist/services/DatabaseHelper.js';
-import Logger from "../../dist/utils/logger.js";
 
 let searchService;
-let queryHelper;
-let embeddingHelper;
-let databaseHelper;
+let queryService;
 
-const SPARQL_EP = 'https://dbpedia.org/sparql';
+const SPARQL_EP = 'https://sparql.dblp.org/sparql';
 
 beforeAll(async () => {
-    queryHelper = new QueryService();
-    embeddingHelper = new EmbeddingHelper();
-    await embeddingHelper.init();
-    let cache_dir = process.env.DB_PATH || ':cache:';
-    databaseHelper = new DatabaseHelper(cache_dir);
-    searchService = new SearchService(queryHelper, embeddingHelper, databaseHelper);
-    await searchService.exploreOntology(SPARQL_EP, (processed, total) => {
-        Logger.info(
-            `Ontology exploration progress: ${processed} items${total ? ` of ${total}` : ""
-            } processed`
-        );
-    });
-}, 300000);
+    queryService = new QueryService();
+    searchService = new SearchService(queryService, 'qlever');
+}, 30000);
 
 
-async function testSearchOntologyClasses() {
-
-    const result = await searchService.searchOntology("person writer", "class", 10, SPARQL_EP);
-    console.log('Search Classes Result:\n', result);
+async function testBooleanAndSearch() {
+    const result = await searchService.searchAll("machine AND learning", SPARQL_EP);
     expect(result).toBeDefined();
     expect(result.length).toBeGreaterThan(0);
+    console.log("Machine AND Learning results:", result.length);
+    console.log("First result:", result[0]);
 }
 
-async function testSearchOntologyProperties() {
-    // Exploration should already be done from previous test
-    const result = await searchService.searchOntology("Birthday", "property", 20, SPARQL_EP);
-    console.log('Search Properties Result:\n', result);
+async function testBooleanOrSearch() {
+    const result = await searchService.searchAll("neural OR networks", SPARQL_EP);
     expect(result).toBeDefined();
     expect(result.length).toBeGreaterThan(0);
+    console.log("Neural OR Networks results:", result.length);
+    console.log("Sample results:", result.slice(0, 3).map(r => r.label));
 }
 
-async function testSearchAll() {
-    const result = await searchService.searchAll("Einstein", SPARQL_EP);
+async function testExactPhraseSearch() {
+    const result = await searchService.searchAll('"deep learning"', SPARQL_EP);
     expect(result).toBeDefined();
     expect(result.length).toBeGreaterThan(0);
-    console.log("Results Rendered:\n", searchService.renderResourceResult(result));
+    console.log('"deep learning" exact phrase results:', result.length);
+}
+
+async function testComplexBooleanSearch() {
+    const result = await searchService.searchAll("(algorithm OR data) AND mining", SPARQL_EP);
+    expect(result).toBeDefined();
+    expect(result.length).toBeGreaterThan(0);
+    console.log("Complex boolean query results:", result.length);
+}
+
+async function testMultiWordImplicitAnd() {
+    const result = await searchService.searchAll("computer vision", SPARQL_EP);
+    expect(result).toBeDefined();
+    expect(result.length).toBeGreaterThan(0);
+    console.log("Multi-word (implicit AND) results:", result.length);
+    // Should find entities containing both "computer" and "vision"
+    const hasComputerVision = result.some(r => 
+        r.label?.toLowerCase().includes('computer') && 
+        r.label?.toLowerCase().includes('vision')
+    );
+    expect(hasComputerVision).toBeTruthy();
+}
+
+async function testLimitAndOffset() {
+    const firstBatch = await searchService.searchAll("database", SPARQL_EP, 5, 0);
+    const secondBatch = await searchService.searchAll("database", SPARQL_EP, 5, 5);
+    
+    expect(firstBatch).toBeDefined();
+    expect(secondBatch).toBeDefined();
+    expect(firstBatch.length).toBeLessThanOrEqual(5);
+    expect(secondBatch.length).toBeLessThanOrEqual(5);
+    
+    // Check that pagination returns different results
+    if (firstBatch.length > 0 && secondBatch.length > 0) {
+        expect(firstBatch[0].uri).not.toBe(secondBatch[0].uri);
+    }
+    
+    console.log("Pagination test - First batch:", firstBatch.length, "Second batch:", secondBatch.length);
 };
 
-test('Search All', testSearchAll, 300000);
-test('Search Ontology Classes', testSearchOntologyClasses, 300000);
-test('Search Ontology Properties', testSearchOntologyProperties, 300000);
+test('Boolean AND Search - Machine Learning', testBooleanAndSearch, 60000);
+test('Boolean OR Search - Neural Networks', testBooleanOrSearch, 60000);
+test('Exact Phrase Search - Deep Learning', testExactPhraseSearch, 60000);
+test('Complex Boolean Search - Data Mining', testComplexBooleanSearch, 60000);
+test('Multi-word Implicit AND - Computer Vision', testMultiWordImplicitAnd, 60000);
+test('Pagination with Limit and Offset', testLimitAndOffset, 60000);

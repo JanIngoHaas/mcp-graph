@@ -35,3 +35,10 @@ export function getReadableName(uri: string, label?: string): string {
   if (label) return label;
   return formatIdentifier(uri);
 }
+
+// ============================== QUERY Generation Helpers ==============================
+
+
+
+
+

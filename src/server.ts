@@ -4,8 +4,7 @@ import { QueryService } from "./services/QueryService.js";
 import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
-import { DatabaseHelper } from "./services/DatabaseHelper.js";
-import Logger from "./utils/logger.js";
+import { QueryParserService, FallbackBackend, QLeverBackend } from "./utils/queryParser.js";
 
 export async function createServer(
   sparqlEndpoint: string,
@@ -21,11 +20,9 @@ export async function createServer(
       instructions: `This is a service to connect you to an RDF-based Knowledge Graph. You can use it to query and explore the graph.
 Process (you may deviate if deemed necessary - be flexible!):
 1) Identify key terms in the user's query.
-2a) Use searchAll to find relevant classes and properties - be aware that this is a syntactic, fuzzy search.
-2b) In case, searchAll didn't return desired results, use searchOntology to find relevant classes and properties. Here, you can structure your request more freely and flexibly.
-3) Use inspectMetadata to get more details about specific classes or properties, e.g. what properties you can use in a subsequent SPARQL query or what the domain and range of a property is.
-4) Use inspectData to explore actual data connections (incoming/outgoing relationships) for specific entities/instances from the knowledge graph.
-5) Use querySparql to execute a SPARQL query against the Knowledge Graph. You can use the results from searchAll, inspectMetadata, and inspectData to construct your query.
+2) Use search to find relevant classes, properties, and entities.
+3) Use inspect to get detailed information about any URI found in step 2. This automatically detects whether it's a class/property (shows domain/range) or an entity (shows data connections).
+4) Use query to execute a SPARQL query against the Knowledge Graph. You can use the results from searchAll and inspect to construct your query.
 `,
     }
   );
@@ -33,31 +30,15 @@ Process (you may deviate if deemed necessary - be flexible!):
   // Initialize services and helpers
   const queryService = new QueryService();
   const embeddingService = new EmbeddingHelper();
-  const databaseHelper = new DatabaseHelper(dbPath);
-  const searchService = new SearchService(
-    queryService,
-    embeddingService,
-    databaseHelper
-  );
-  const inspectionService = new InspectionService(queryService, embeddingService);
-
-  // Initialize exploration on startup
-  await searchService.exploreOntology(sparqlEndpoint, (processed, total) => {
-    Logger.info(
-      `Ontology exploration progress: ${processed} items${
-        total ? ` of ${total}` : ""
-      } processed`
-    );
-  });
+  const searchService = new SearchService(queryService, "fallback");
+  const inspectionService = new InspectionService(queryService, sparqlEndpoint, embeddingService);
 
   if (initOnly) {
-    Logger.info(
-      'Initialization complete with "init only" mode. No tools registered.'
-    );
+    return server;
   }
 
   server.registerTool(
-    "querySparql",
+    "query",
     {
       description:
         "Execute a SPARQL query against the Knowledge Graph. Search for useable properties first to know what to query.",
@@ -84,68 +65,25 @@ Process (you may deviate if deemed necessary - be flexible!):
     }
   );
 
-  // Register the semantic search tool
-  server.registerTool(
-    "searchOntology",
-    {
-      description:
-        'Search for RDF ontological constructs using semantic similarity. Specify whether to search for classes or properties. Returns ontology URIs - use inspectMetadata for full details. Examples: "person birth date" (finds birthDate property), "location coordinates" (finds geographic properties), "organization concept" (finds Organization class)',
-      inputSchema: {
-        query: z.string().describe("The natural language search query"),
-        searchType: z
-          .enum(["class", "property"])
-          .describe(
-            "Whether to search for classes ('class') or properties ('property')"
-          ),
-        limit: z
-          .number()
-          .optional()
-          .default(10)
-          .describe("Maximum number of results to return (default: 10)"),
-      },
-    },
-    async (request: {
-      query: string;
-      searchType: "class" | "property";
-      limit: number;
-    }) => {
-      const { query, searchType, limit } = request;
-
-      if (!query) {
-        throw new Error("Query parameter is required");
-      }
-
-      const results = await searchService.searchOntology(
-        query,
-        searchType,
-        limit,
-        sparqlEndpoint
-      );
-
-      const response = searchService.renderOntologyResult(results);
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: response,
-          },
-        ],
-      };
-    }
-  );
 
   // Register the search all tool
   server.registerTool(
-    "searchAll",
+    "search",
     {
       description:
-        'Search for any RDF entities (data such as resources or individuals, as well as metadata (ontological constructs)) using syntactic full-text search. Examples: "Einstein" (finds Albert Einstein), "quantum*" (finds quantum mechanics, quantum physics)',
+        `Search for RDF entities using boolean queries. Examples:
+- 'Einstein' finds the word Einstein
+- 'Anton Hinkel' finds both words anywhere (AND logic)  
+- '"Anton Hinkel"' finds exact phrase
+- 'Thomas OR Albert' finds either name
+- 'physicist AND Nobel' finds both terms
+- '(quantum mechanics) AND Einstein' uses grouping
+Quoted strings are exact phrases, unquoted multi-words require all words to appear.`,
       inputSchema: {
         query: z
           .string()
           .describe(
-            'The search query to find entities. Uses syntactic full-match search with wildcard support (e.g., "Einstein", "quantum*"). NOTE: This is not a semantic search - use precise single-word or sub-word queries for best results (e.g. "Einstein" or "Einst" instead of "Albert Einstein works")'
+            'Boolean search query. Examples: "Einstein" (exact phrase), Einstein (single term), Thomas OR Albert (union), physicist AND Nobel (intersection), (quantum mechanics) AND Einstein (grouping), Thomas Hinkel (both words must appear). Quoted strings are exact phrases, unquoted multi-words require all words to appear.'
           ),
         limit: z
           .number()
@@ -166,8 +104,11 @@ Process (you may deviate if deemed necessary - be flexible!):
         throw new Error("Query parameter is required");
       }
 
+      // Trim any leading/trailing single quotes from query
+      const trimmedQuery = query.replace(/^'|'$/g, '');
+
       const results = await searchService.searchAll(
-        query,
+        trimmedQuery,
         sparqlEndpoint,
         limit,
         offset
@@ -186,17 +127,24 @@ Process (you may deviate if deemed necessary - be flexible!):
     }
   );
 
-  // Register the inspect metadata tool
+  // Register the unified inspect tool
   server.registerTool(
-    "inspectMetadata",
+    "inspect",
     {
       description:
-        'Inspect any metadata URI (properties, classes, ...) to see all related properties, domains and ranges. Example: "http://dbpedia.org/ontology/birthDate" (inspect birthDate property and returns its domain and range), Example: "http://dbpedia.org/ontology/Person" (inspect Person class and returns its properties)',
+        'Inspect any URI in the knowledge graph. Shows relationships and properties for classes, properties, or entities.',
       inputSchema: {
         uri: z
           .string()
           .describe(
-            "The URI to inspect - can be a property, class, something used as domain/range, or any other metadata URI"
+            "The URI to inspect - can be a class, property, entity, or any other URI in the knowledge graph"
+          ),
+        expandProperties: z
+          .array(z.string())
+          .optional()
+          .default([])
+          .describe(
+            "Optional array of property URIs to expand and show all values for (only applies to entity inspection, by default only shows first few values)"
           ),
         relevantToQuery: z
           .string()
@@ -208,64 +156,7 @@ Process (you may deviate if deemed necessary - be flexible!):
           .number()
           .optional()
           .describe(
-            "Maximum number of domain/range properties to return. Only applies when relevantToQuery is set or when you want to limit output."
-          ),
-      },
-    },
-    async (request: { uri: string; relevantToQuery?: string; maxResults?: number }) => {
-      const { uri, relevantToQuery, maxResults } = request;
-      try {
-        const result = await inspectionService.inspectMetadata(
-          uri,
-          sparqlEndpoint,
-          relevantToQuery,
-          maxResults
-        );
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: result,
-            },
-          ],
-        };
-      } catch (error) {
-        throw new Error(`Failed to inspect resource: ${error}`);
-      }
-    }
-  );
-
-  // Register the inspect data tool
-  server.registerTool(
-    "inspectData",
-    {
-      description:
-        'Inspect actual data connections for any URI (entity/instance) to see all incoming and outgoing relationships. Shows what properties connect to/from this entity and their values. Example: "http://dbpedia.org/resource/Julius_Caesar" (shows all relationships like birthDate, birthPlace, spouse, etc.)',
-      inputSchema: {
-        uri: z
-          .string()
-          .describe(
-            "The URI to inspect - should be an entity/instance URI (not a class or property)"
-          ),
-        expandProperties: z
-          .array(z.string())
-          .optional()
-          .default([])
-          .describe(
-            "Optional array of property URIs to expand and show all values for (by default only shows first few values)"
-          ),
-        relevantToQuery: z
-          .string()
-          .optional()
-          .describe(
-            "Optional query to filter and rank properties by semantic relevance. Results will be ordered by similarity to this query."
-          ),
-        maxResults: z
-          .number()
-          .optional()
-          .describe(
-            "Maximum number of properties to return per category (outgoing/incoming). Only applies when relevantToQuery is set or when you want to limit output."
+            "Maximum number of results to return per category. Only applies when relevantToQuery is set or when you want to limit output."
           ),
       },
     },
@@ -277,9 +168,8 @@ Process (you may deviate if deemed necessary - be flexible!):
     }) => {
       const { uri, expandProperties = [], relevantToQuery, maxResults } = request;
       try {
-        const result = await inspectionService.inspectData(
+        const result = await inspectionService.inspect(
           uri,
-          sparqlEndpoint,
           expandProperties,
           relevantToQuery,
           maxResults
@@ -294,7 +184,7 @@ Process (you may deviate if deemed necessary - be flexible!):
           ],
         };
       } catch (error) {
-        throw new Error(`Failed to inspect data: ${error}`);
+        throw new Error(`Failed to inspect URI: ${error}`);
       }
     }
   );

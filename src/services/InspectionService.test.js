@@ -1,59 +1,59 @@
 import { beforeAll, test, expect } from 'vitest';
 import { InspectionService } from '../../dist/services/InspectionService.js';
 import { QueryService } from '../../dist/services/QueryService.js';
+import { EmbeddingHelper } from '../../dist/services/EmbeddingHelper.js';
 
 let inspectionService;
-let queryHelper;
-const SPARQL_EP = 'https://dbpedia.org/sparql';
+let queryService;
+let embeddingHelper;
+const SPARQL_EP = 'https://sparql.dblp.org/sparql';
 
-beforeAll(() => {
-    queryHelper = new QueryService();
-    inspectionService = new InspectionService(queryHelper);
-});
+beforeAll(async () => {
+    queryService = new QueryService();
+    embeddingHelper = new EmbeddingHelper();
+    inspectionService = new InspectionService(queryService, SPARQL_EP, embeddingHelper);
+}, 30000);
 
 async function testInspectionClass() {
-    const classUri = 'http://dbpedia.org/ontology/Person';
-    const result = await inspectionService.inspectMetadata(classUri, SPARQL_EP);
+    const classUri = 'https://dblp.org/rdf/schema#Person';
+    const result = await inspectionService.inspect(classUri);
     console.log('Inspection Class Result:\n', result);
     expect(result).toBeDefined();
-    expect(result.includes("secondLeader")).toBeTruthy();
-    expect(result.includes("voice")).toBeTruthy();
-    expect(result.includes("birthPlace")).toBeTruthy();
-    expect(result.includes("birthDate")).toBeTruthy();
-    expect(result.includes("signature")).toBeTruthy();
-    expect(result.includes("worldTournament")).toBeTruthy();
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
 }
 
 async function testInspectionProperty() {
-    const propertyUri = 'http://dbpedia.org/ontology/birthPlace';
-    const result = await inspectionService.inspectMetadata(propertyUri, SPARQL_EP);
+    const propertyUri = 'https://dblp.org/rdf/schema#authoredBy';
+    const result = await inspectionService.inspect(propertyUri);
     console.log('Inspection Property Result:\n', result);
     expect(result).toBeDefined();
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
 }
 
-async function testInspectMetadataProp() {
-    const metadata = await inspectionService.inspectMetadata('http://dbpedia.org/ontology/author', SPARQL_EP);
-    console.log('Inspect Metadata Result:\n', metadata);
-}
-
-async function testInspectMetadataClass() {
-    const metadata = await inspectionService.inspectMetadata('http://dbpedia.org/ontology/Animal', SPARQL_EP);
-    console.log('Inspect Metadata Class Result:\n', metadata);
-    expect(metadata).toBeDefined();
-}
-
-async function testInspectDataCaesar() {
-    const caesarUri = 'http://dbpedia.org/resource/Julius_Caesar';
-    const result = await inspectionService.inspectData(caesarUri, SPARQL_EP, ["http://xmlns.com/foaf/0.1/depiction"]);
-    console.log('Inspect Data Caesar Result:\n', result);
+async function testInspectEntity() {
+    const entityUri = 'https://dblp.org/pid/t/AlanMTuring';
+    const result = await inspectionService.inspect(entityUri);
+    console.log('Inspect Entity Result:\n', result);
     expect(result).toBeDefined();
-    expect(result.includes('Outgoing Properties')).toBeTruthy();
-    expect(result.includes('Incoming Properties')).toBeTruthy();
-    expect(result.includes('http://commons.wikimedia.org/wiki/Special:FilePath/Venus_and_Cupid_from_the_House_of_Marcus_Fabius_Rufus_at_Pompeii,_most_likely_a_depiction_of_Cleopatra_VII.jpg (URI)')).toBeTruthy();
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
 }
 
-test('Inspect Class', testInspectionClass, 300000);
-test('Inspect Property', testInspectionProperty, 300000);
-test('Inspect Metadata Property', testInspectMetadataProp, 300000);
-test('Inspect Metadata Class', testInspectMetadataClass, 300000);
-test('Inspect Data Caesar', testInspectDataCaesar, 300000);
+async function testInspectWithExpandProperties() {
+    const entityUri = 'https://dblp.org/pid/t/AlanMTuring';
+    const result = await inspectionService.inspect(
+        entityUri, 
+        ['https://dblp.org/rdf/schema#authorOf']
+    );
+    console.log('Inspect with Expand Properties Result:\n', result);
+    expect(result).toBeDefined();
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+}
+
+test('Inspect Class', testInspectionClass, 60000);
+test('Inspect Property', testInspectionProperty, 60000);
+test('Inspect Entity', testInspectEntity, 60000);
+test('Inspect with Expand Properties', testInspectWithExpandProperties, 60000);

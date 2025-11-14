@@ -22,215 +22,226 @@ function getFormattedLabel(label: string): string {
 export class InspectionService {
   constructor(
     private queryService: QueryService,
+    private sparqlEndpoint: string,
     private embeddingHelper?: EmbeddingHelper
   ) {
     this.queryService = queryService;
+    this.sparqlEndpoint = sparqlEndpoint;
     this.embeddingHelper = embeddingHelper;
   }
 
-  public async inspectMetadata(
+  public async inspect(
     uri: string,
-    sparqlEndpoint: string,
-    relevantToQuery?: string,
-    maxResults?: number
-  ): Promise<string> {
-    return await inspectMetadata(
-      uri,
-      sparqlEndpoint,
-      this.queryService,
-      this.embeddingHelper,
-      relevantToQuery,
-      maxResults
-    );
-  }
-
-  public async inspectData(
-    uri: string,
-    sparqlEndpoint: string,
     expandProperties: string[] = [],
     relevantToQuery?: string,
     maxResults?: number
   ): Promise<string> {
-    return await inspectData(
+    // First try to inspect as ontology (class/property)
+    const classResult = await this.inspectClass(uri);
+
+    if (classResult.ranges.size > 0 || classResult.domains.size > 0) {
+      return await formatOntologyInspectionResult(
+        classResult,
+        this.embeddingHelper,
+        relevantToQuery,
+        maxResults
+      );
+    }
+
+    // If not a class, try to inspect as a property
+    const propertyResult = await this.inspectProperty(uri);
+
+    if (propertyResult) {
+      return await formatPropertyInspectionResult(
+        propertyResult,
+        this.embeddingHelper,
+        relevantToQuery,
+        maxResults
+      );
+    }
+
+    // If neither class nor property, try to inspect as data (instance/entity)
+    const dataResult = await this.inspectData(
       uri,
-      sparqlEndpoint,
-      this.queryService,
       expandProperties,
-      this.embeddingHelper,
       relevantToQuery,
       maxResults
     );
-  }
-}
 
-/*
-Three cases:
-a) URI is a property: rdf:Property, owl:ObjectProperty, owl:DatatypeProperty, owl:FunctionalProperty, owl:InverseFunctionalProperty
-b) URI is a class: rdfs:Class, owl:Class
-*/
-async function inspectProperty(
-  uri: string,
-  sparqlEndpoint: string,
-  queryService: QueryService
-): Promise<{
-  uri: string;
-  label: string;
-  description?: string;
-  domains: Map<string, string>;
-  ranges: Map<string, string>;
-  domainHierarchies: Map<string, string>;
-  rangeHierarchies: Map<string, string>;
-} | null> {
-  let query = `
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    PREFIX owl: <http://www.w3.org/2002/07/owl#>
-    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-    PREFIX dc: <http://purl.org/dc/elements/1.1/>
-    SELECT ?propURI ?propLabel ?propDescr ?propRange ?propRangeLabel ?propDomain ?propDomainLabel WHERE {
-      BIND(<${uri}> AS ?propURI) .
-      
-      # Get labels (rdfs:label, skos:prefLabel, dc:title)
-      OPTIONAL { ?propURI rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
-      OPTIONAL { ?propURI skos:prefLabel ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
-      OPTIONAL { ?propURI dc:title ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
-      BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle) AS ?propLabel)
+    // If data inspection found something, return it
+    if (!dataResult.includes("No data connections found")) {
+      return dataResult;
+    }
 
-      # Get comments (rdfs:comment, skos:note, dc:description)
-      OPTIONAL { ?propURI rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
-      OPTIONAL { ?propURI skos:note ?skosNote . FILTER(LANG(?skosNote) = "en" || LANG(?skosNote) = "") }
-      OPTIONAL { ?propURI dc:description ?dcDescr . FILTER(LANG(?dcDescr) = "en" || LANG(?dcDescr) = "") }
-      BIND(COALESCE(?rdfsComment, ?skosNote, ?dcDescr) AS ?propDescr)
-
-      ?propURI rdfs:domain ?propDomain .
-      ?propURI rdfs:range ?propRange .
-      
-
-      # Get labels for range and domain properties
-      OPTIONAL { ?propRange rdfs:label ?rangeRdfsLabel . FILTER(LANG(?rangeRdfsLabel) = "en" || LANG(?rangeRdfsLabel) = "") }
-      OPTIONAL { ?propRange skos:prefLabel ?rangeSkosLabel . FILTER(LANG(?rangeSkosLabel) = "en" || LANG(?rangeSkosLabel) = "") }
-      OPTIONAL { ?propRange dc:title ?rangeDcTitle . FILTER(LANG(?rangeDcTitle) = "en" || LANG(?rangeDcTitle) = "") }
-      BIND(COALESCE(?rangeRdfsLabel, ?rangeSkosLabel, ?rangeDcTitle) AS ?propRangeLabel)
-
-      OPTIONAL { ?propDomain rdfs:label ?domainRdfsLabel . FILTER(LANG(?domainRdfsLabel) = "en" || LANG(?domainRdfsLabel) = "") }
-      OPTIONAL { ?propDomain skos:prefLabel ?domainSkosLabel . FILTER(LANG(?domainSkosLabel) = "en" || LANG(?domainSkosLabel) = "") }
-      OPTIONAL { ?propDomain dc:title ?domainDcTitle . FILTER(LANG(?domainDcTitle) = "en" || LANG(?domainDcTitle) = "") }
-      BIND(COALESCE(?domainRdfsLabel, ?domainSkosLabel, ?domainDcTitle) AS ?propDomainLabel)
-    }`;
-
-  const bindings = await queryService.executeQuery(query, [sparqlEndpoint]);
-
-  // Check if the response contains results
-  if (!bindings || bindings.length === 0) {
-    return null;
+    // If nothing worked, return a combined message
+    return `No information found for URI: <${uri}>\n\nThis URI appears to be neither a class/property nor an instance with data connections in the knowledge graph.`;
   }
 
-  let propLabel = getReadableName(uri, undefined);
-  let propDescr: string | undefined;
-  let propRange: Map<string, string> = new Map();
-  let propDomain: Map<string, string> = new Map();
-  let domainHierarchies: Map<string, string> = new Map();
-  let rangeHierarchies: Map<string, string> = new Map();
-
-  for (const binding of bindings) {
-    if (binding.propRange && !propRange.has(binding.propRange.value)) {
-      propRange.set(
-        binding.propRange.value,
-        binding.propRangeLabel?.value
-          ? getFormattedLabel(binding.propRangeLabel.value)
-          : getReadableName(binding.propRange.value)
-      );
-    }
-    if (binding.propDomain && !propDomain.has(binding.propDomain.value)) {
-      propDomain.set(
-        binding.propDomain.value,
-        binding.propDomainLabel?.value
-          ? getFormattedLabel(binding.propDomainLabel.value)
-          : getReadableName(binding.propDomain.value)
-      );
-    }
-    if (binding.propLabel) {
-      propLabel = getFormattedLabel(binding.propLabel.value);
-    }
-    if (binding.propDescr) {
-      propDescr = binding.propDescr.value;
-    }
-  }
-
-  // Fetch hierarchy information for each domain
-  for (const domainUri of propDomain.keys()) {
-    const hierarchyQuery = `
+  /*
+  Three cases:
+  a) URI is a property: rdf:Property, owl:ObjectProperty, owl:DatatypeProperty, owl:FunctionalProperty, owl:InverseFunctionalProperty
+  b) URI is a class: rdfs:Class, owl:Class
+  c) URI is an instance/entity: has data connections
+  */
+  private async inspectProperty(
+    uri: string
+  ): Promise<{
+    uri: string;
+    label: string;
+    description?: string;
+    domains: Map<string, string>;
+    ranges: Map<string, string>;
+    domainHierarchies: Map<string, string>;
+    rangeHierarchies: Map<string, string>;
+  } | null> {
+    let query = `
+      PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
       PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
       PREFIX owl: <http://www.w3.org/2002/07/owl#>
-      SELECT (GROUP_CONCAT(DISTINCT ?parent; SEPARATOR = " -> ") AS ?hierarchy) WHERE {
-        <${domainUri}> rdfs:subClassOf* ?parent .
-        FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
-      }
-    `;
-    const hierarchyBindings = await queryService.executeQuery(hierarchyQuery, [
-      sparqlEndpoint,
-    ]);
-    if (
-      hierarchyBindings &&
-      hierarchyBindings.length > 0 &&
-      hierarchyBindings[0].hierarchy
-    ) {
-      domainHierarchies.set(domainUri, hierarchyBindings[0].hierarchy.value);
+      PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+      PREFIX dc: <http://purl.org/dc/elements/1.1/>
+      SELECT ?propURI ?propLabel ?propDescr ?propRange ?propRangeLabel ?propDomain ?propDomainLabel WHERE {
+        BIND(<${uri}> AS ?propURI) .
+        
+        # Get labels (rdfs:label, skos:prefLabel, dc:title)
+        OPTIONAL { ?propURI rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
+        OPTIONAL { ?propURI skos:prefLabel ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
+        OPTIONAL { ?propURI dc:title ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
+        BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle) AS ?propLabel)
+
+        # Get comments (rdfs:comment, skos:note, dc:description)
+        OPTIONAL { ?propURI rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
+        OPTIONAL { ?propURI skos:note ?skosNote . FILTER(LANG(?skosNote) = "en" || LANG(?skosNote) = "") }
+        OPTIONAL { ?propURI dc:description ?dcDescr . FILTER(LANG(?dcDescr) = "en" || LANG(?dcDescr) = "") }
+        BIND(COALESCE(?rdfsComment, ?skosNote, ?dcDescr) AS ?propDescr)
+
+        ?propURI rdfs:domain ?propDomain .
+        ?propURI rdfs:range ?propRange .
+        
+
+        # Get labels for range and domain properties
+        OPTIONAL { ?propRange rdfs:label ?rangeRdfsLabel . FILTER(LANG(?rangeRdfsLabel) = "en" || LANG(?rangeRdfsLabel) = "") }
+        OPTIONAL { ?propRange skos:prefLabel ?rangeSkosLabel . FILTER(LANG(?rangeSkosLabel) = "en" || LANG(?rangeSkosLabel) = "") }
+        OPTIONAL { ?propRange dc:title ?rangeDcTitle . FILTER(LANG(?rangeDcTitle) = "en" || LANG(?rangeDcTitle) = "") }
+        BIND(COALESCE(?rangeRdfsLabel, ?rangeSkosLabel, ?rangeDcTitle) AS ?propRangeLabel)
+
+        OPTIONAL { ?propDomain rdfs:label ?domainRdfsLabel . FILTER(LANG(?domainRdfsLabel) = "en" || LANG(?domainRdfsLabel) = "") }
+        OPTIONAL { ?propDomain skos:prefLabel ?domainSkosLabel . FILTER(LANG(?domainSkosLabel) = "en" || LANG(?domainSkosLabel) = "") }
+        OPTIONAL { ?propDomain dc:title ?domainDcTitle . FILTER(LANG(?domainDcTitle) = "en" || LANG(?domainDcTitle) = "") }
+        BIND(COALESCE(?domainRdfsLabel, ?domainSkosLabel, ?domainDcTitle) AS ?propDomainLabel)
+      }`;
+
+    const bindings = await this.queryService.executeQuery(query, [this.sparqlEndpoint]);
+
+    // Check if the response contains results
+    if (!bindings || bindings.length === 0) {
+      return null;
     }
-  }
 
-  // Fetch hierarchy information for each range
-  for (const rangeUri of propRange.keys()) {
-    const hierarchyQuery = `
-      PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-      PREFIX owl: <http://www.w3.org/2002/07/owl#>
-      SELECT (GROUP_CONCAT(DISTINCT ?parent; SEPARATOR = " -> ") AS ?hierarchy) WHERE {
-        <${rangeUri}> rdfs:subClassOf* ?parent .
-        FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
+    let propLabel = getReadableName(uri, undefined);
+    let propDescr: string | undefined;
+    let propRange: Map<string, string> = new Map();
+    let propDomain: Map<string, string> = new Map();
+    let domainHierarchies: Map<string, string> = new Map();
+    let rangeHierarchies: Map<string, string> = new Map();
+
+    for (const binding of bindings) {
+      if (binding.propRange && !propRange.has(binding.propRange.value)) {
+        propRange.set(
+          binding.propRange.value,
+          binding.propRangeLabel?.value
+            ? getFormattedLabel(binding.propRangeLabel.value)
+            : getReadableName(binding.propRange.value)
+        );
       }
-    `;
-    const hierarchyBindings = await queryService.executeQuery(hierarchyQuery, [
-      sparqlEndpoint,
-    ]);
-    if (
-      hierarchyBindings &&
-      hierarchyBindings.length > 0 &&
-      hierarchyBindings[0].hierarchy
-    ) {
-      rangeHierarchies.set(rangeUri, hierarchyBindings[0].hierarchy.value);
+      if (binding.propDomain && !propDomain.has(binding.propDomain.value)) {
+        propDomain.set(
+          binding.propDomain.value,
+          binding.propDomainLabel?.value
+            ? getFormattedLabel(binding.propDomainLabel.value)
+            : getReadableName(binding.propDomain.value)
+        );
+      }
+      if (binding.propLabel) {
+        propLabel = getFormattedLabel(binding.propLabel.value);
+      }
+      if (binding.propDescr) {
+        propDescr = binding.propDescr.value;
+      }
     }
+
+    // Fetch hierarchy information for each domain
+    for (const domainUri of propDomain.keys()) {
+      const hierarchyQuery = `
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        PREFIX owl: <http://www.w3.org/2002/07/owl#>
+        SELECT (GROUP_CONCAT(DISTINCT ?parent; SEPARATOR = " -> ") AS ?hierarchy) WHERE {
+          <${domainUri}> rdfs:subClassOf* ?parent .
+          FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
+        }
+      `;
+      const hierarchyBindings = await this.queryService.executeQuery(hierarchyQuery, [
+        this.sparqlEndpoint,
+      ]);
+      if (
+        hierarchyBindings &&
+        hierarchyBindings.length > 0 &&
+        hierarchyBindings[0].hierarchy
+      ) {
+        domainHierarchies.set(domainUri, hierarchyBindings[0].hierarchy.value);
+      }
+    }
+
+    // Fetch hierarchy information for each range
+    for (const rangeUri of propRange.keys()) {
+      const hierarchyQuery = `
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        PREFIX owl: <http://www.w3.org/2002/07/owl#>
+        SELECT (GROUP_CONCAT(DISTINCT ?parent; SEPARATOR = " -> ") AS ?hierarchy) WHERE {
+          <${rangeUri}> rdfs:subClassOf* ?parent .
+          FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
+        }
+      `;
+      const hierarchyBindings = await this.queryService.executeQuery(hierarchyQuery, [
+        this.sparqlEndpoint,
+      ]);
+      if (
+        hierarchyBindings &&
+        hierarchyBindings.length > 0 &&
+        hierarchyBindings[0].hierarchy
+      ) {
+        rangeHierarchies.set(rangeUri, hierarchyBindings[0].hierarchy.value);
+      }
+    }
+
+    if (propRange.size === 0 && propDomain.size === 0) {
+      return null;
+    }
+
+    return {
+      ranges: propRange,
+      domains: propDomain,
+      rangeHierarchies: rangeHierarchies,
+      domainHierarchies: domainHierarchies,
+      label: propLabel,
+      description: propDescr,
+      uri: uri,
+    };
   }
 
-  if (propRange.size === 0 && propDomain.size === 0) {
-    return null;
-  }
-
-  return {
-    ranges: propRange,
-    domains: propDomain,
-    rangeHierarchies: rangeHierarchies,
-    domainHierarchies: domainHierarchies,
-    label: propLabel,
-    description: propDescr,
-    uri: uri,
-  };
-}
-
-async function inspectClass(
-  uri: string,
-  sparqlEndpoint: string,
-  queryService: QueryService
-): Promise<{
-  ranges: Map<string, string>;
-  domains: Map<string, string>;
-  label: string;
-  description: string | undefined;
-  uri: string;
-}> {
-  let ranges: Map<string, string> = new Map();
-  let domains: Map<string, string> = new Map();
-  let label: string = getReadableName(uri, undefined);
-  let description: string | undefined;
+  private async inspectClass(
+    uri: string
+  ): Promise<{
+    ranges: Map<string, string>;
+    domains: Map<string, string>;
+    label: string;
+    description: string | undefined;
+    uri: string;
+  }> {
+    let ranges: Map<string, string> = new Map();
+    let domains: Map<string, string> = new Map();
+    let label: string = getReadableName(uri, undefined);
+    let description: string | undefined;
 
   let query = `
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -279,7 +290,7 @@ async function inspectClass(
       }
     } LIMIT 100000`;
 
-  const bindings = await queryService.executeQuery(query, [sparqlEndpoint]);
+  const bindings = await this.queryService.executeQuery(query, [this.sparqlEndpoint]);
 
   // Process results
   for (const binding of bindings) {
@@ -311,13 +322,100 @@ async function inspectClass(
     }
   }
 
-  return {
-    ranges: ranges,
-    domains: domains,
-    label: label,
-    description: description,
-    uri: uri,
-  };
+    return {
+      ranges: ranges,
+      domains: domains,
+      label: label,
+      description: description,
+      uri: uri,
+    };
+  }
+
+  private async inspectData(
+    uri: string,
+    expandProperties: string[] = [],
+    relevantToQuery?: string,
+    maxResults?: number
+  ): Promise<string> {
+    // Single query to get all connections with their values
+    const query = `
+      PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+      PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+      PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+      PREFIX dc: <http://purl.org/dc/elements/1.1/>
+      PREFIX dct: <http://purl.org/dc/terms/>
+      PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+
+      SELECT DISTINCT ?property ?direction ?value WHERE {
+        {
+          # Outgoing connections: uri -> property -> value
+          SELECT ?property ?value ?direction WHERE {
+            <${uri}> ?property ?value .
+            BIND("outgoing" AS ?direction)
+            FILTER(!isLiteral(?value) || lang(?value) = "" || lang(?value) = "en")
+          }
+        }
+        UNION
+        {
+          # Incoming connections: value -> property -> uri
+          SELECT ?property ?value ?direction WHERE {
+            ?value ?property <${uri}> .
+            BIND("incoming" AS ?direction)
+          }
+        }
+      }
+      GROUP BY ?direction ?property ?value
+      ORDER BY ?direction ?property ?value
+    `;
+
+    const bindings = await this.queryService.executeQuery(query, [this.sparqlEndpoint]);
+
+    if (!bindings || bindings.length === 0) {
+      return `No data connections found for URI: <${uri}>`;
+    }
+
+    // Group results by direction and property
+    const outgoingData = new Map<
+      string,
+      Array<{ value: string; label?: string }>
+    >();
+    const incomingData = new Map<
+      string,
+      Array<{ value: string; label?: string }>
+    >();
+
+    for (const binding of bindings) {
+      const propertyUri = binding.property?.value;
+      const direction = binding.direction?.value;
+      const value = binding.value?.value;
+
+      if (!propertyUri || !value) continue;
+
+      const valueEntry = { value, label: undefined };
+
+      if (direction === "outgoing") {
+        if (!outgoingData.has(propertyUri)) {
+          outgoingData.set(propertyUri, []);
+        }
+        outgoingData.get(propertyUri)!.push(valueEntry);
+      } else if (direction === "incoming") {
+        if (!incomingData.has(propertyUri)) {
+          incomingData.set(propertyUri, []);
+        }
+        incomingData.get(propertyUri)!.push(valueEntry);
+      }
+    }
+
+    return await formatDataConnections(
+      uri,
+      outgoingData,
+      incomingData,
+      expandProperties,
+      this.embeddingHelper,
+      relevantToQuery,
+      maxResults
+    );
+  }
 }
 
 async function formatPropertyInspectionResult(
@@ -377,26 +475,28 @@ async function formatPropertyInspectionResult(
 
   // Add domain information with hierarchy
   if (filteredDomains.length > 0) {
-    result += `## Domain Classes (subjects that can use this property)\n`;
+    result += `## Domain Classes (subjects that can use this property)\n\n`;
+    result += "| URI | Label | Hierarchy |\n";
+    result += "|-----|-------|----------|\n";
     for (const [uri, label] of filteredDomains) {
-      result += `- <${uri}>: ${label}\n`;
-      const hierarchy = inspection.domainHierarchies.get(uri);
-      if (hierarchy) {
-        result += `  Hierarchy: ${hierarchy}\n`;
-      }
+      const hierarchy = inspection.domainHierarchies.get(uri) || "";
+      const escapedLabel = label.replace(/\|/g, "\\|");
+      const escapedHierarchy = hierarchy.replace(/\|/g, "\\|");
+      result += `| \`${uri}\` | ${escapedLabel} | ${escapedHierarchy} |\n`;
     }
     result += "\n";
   }
 
   // Add range information with hierarchy
   if (filteredRanges.length > 0) {
-    result += `## Range Classes (objects this property can point to)\n`;
+    result += `## Range Classes (objects this property can point to)\n\n`;
+    result += "| URI | Label | Hierarchy |\n";
+    result += "|-----|-------|----------|\n";
     for (const [uri, label] of filteredRanges) {
-      result += `- <${uri}>: ${label}\n`;
-      const hierarchy = inspection.rangeHierarchies.get(uri);
-      if (hierarchy) {
-        result += `  Hierarchy: ${hierarchy}\n`;
-      }
+      const hierarchy = inspection.rangeHierarchies.get(uri) || "";
+      const escapedLabel = label.replace(/\|/g, "\\|");
+      const escapedHierarchy = hierarchy.replace(/\|/g, "\\|");
+      result += `| \`${uri}\` | ${escapedLabel} | ${escapedHierarchy} |\n`;
     }
     result += "\n";
   }
@@ -500,17 +600,23 @@ async function formatOntologyInspectionResult(
   }
 
   if (filteredDomains.length > 0) {
-    result += `## Domain properties\n`;
+    result += `## Outgoing connections (Properties)\n\n`;
+    result += "| URI | Label |\n";
+    result += "|-----|-------|\n";
     for (const [uri, label] of filteredDomains) {
-      result += `- <${uri}>: ${label}\n`;
+      const escapedLabel = label.replace(/\|/g, "\\|");
+      result += `| \`${uri}\` | ${escapedLabel} |\n`;
     }
     result += "\n";
   }
 
   if (filteredRanges.length > 0) {
-    result += `## Range properties\n`;
+    result += `## Incoming connections (Properties)\n\n`;
+    result += "| URI | Label |\n";
+    result += "|-----|-------|\n";
     for (const [uri, label] of filteredRanges) {
-      result += `- <${uri}>: ${label}\n`;
+      const escapedLabel = label.replace(/\|/g, "\\|");
+      result += `| \`${uri}\` | ${escapedLabel} |\n`;
     }
     result += "\n";
   }
@@ -521,13 +627,13 @@ async function formatOntologyInspectionResult(
   const totalRanges = inspection.ranges.size;
 
   if (relevantToQuery || maxResults) {
-    result += `## Showing: ${domainCount} of ${totalDomains} domain properties, ${rangeCount} of ${totalRanges} range properties`;
+    result += `## Showing: ${domainCount} of ${totalDomains} outgoing connections, ${rangeCount} of ${totalRanges} incoming connections`;
     if (relevantToQuery) {
       result += ` (filtered by: "${relevantToQuery}")`;
     }
     result += `\n`;
   } else {
-    result += `## Total: ${domainCount} domain properties, ${rangeCount} range properties\n`;
+    result += `## Total: ${domainCount} outgoing connections, ${rangeCount} incoming connections\n`;
   }
 
   return result;
@@ -542,6 +648,17 @@ function formatValue(valueEntry: { value: string; label?: string }): string {
     return `    - ${valueEntry.value} (URI)\n`;
   }
   return `    - ${valueEntry.value}\n`;
+}
+
+// Helper function to format value for table display
+function formatValueForTable(valueEntry: { value: string; label?: string }): string {
+  if (
+    valueEntry.value.startsWith("http://") ||
+    valueEntry.value.startsWith("https://")
+  ) {
+    return getReadableName(valueEntry.value);
+  }
+  return valueEntry.value;
 }
 
 // Helper function to format property section
@@ -624,34 +741,42 @@ async function formatDataConnections(
     result += `## Properties (${filteredOutgoing.length}${
       relevantToQuery || maxResults ? ` of ${outgoingData.size}` : ""
     })\n`;
-    result += `*<${uri}> --[property]--> value*\n\n`;
-    let outgoingIndex = 1;
+    result += `*<${uri}> --[Property]--> [Sample Values]*\n\n`;
+    result += "| Property | Count | Sample Values |\n";
+    result += "|----------|-------|---------------|\n";
+    
     for (const [propertyUri, values] of filteredOutgoing) {
-      result += formatPropertySection(
-        outgoingIndex++,
-        propertyUri,
-        values,
-        expandProperties.includes(propertyUri),
-        "Values"
-      );
+      const isExpanded = expandProperties.includes(propertyUri);
+      const sampleValues = isExpanded 
+        ? values.map(v => formatValueForTable(v)).join(", ")
+        : values.slice(0, 2).map(v => formatValueForTable(v)).join(", ") + 
+          (values.length > 2 ? `, ... (+${values.length - 2} more)` : "");
+      
+      const escapedSamples = sampleValues.replace(/\|/g, "\\|").replace(/\n/g, " ");
+      result += `| \`${propertyUri}\` | ${values.length} | ${escapedSamples} |\n`;
     }
+    result += "\n";
   }
 
   if (filteredIncoming.length > 0) {
     result += `## References (${filteredIncoming.length}${
       relevantToQuery || maxResults ? ` of ${incomingData.size}` : ""
     })\n`;
-    result += `*entity --[property]--> <${uri}>*\n\n`;
-    let incomingIndex = 1;
+    result += `*[Sample Entities] --[Property]--> <${uri}>*\n\n`;
+    result += "| Property | Count | Sample Entities |\n";
+    result += "|----------|-------|----------------|\n";
+    
     for (const [propertyUri, values] of filteredIncoming) {
-      result += formatPropertySection(
-        incomingIndex++,
-        propertyUri,
-        values,
-        expandProperties.includes(propertyUri),
-        "Connected entities"
-      );
+      const isExpanded = expandProperties.includes(propertyUri);
+      const sampleValues = isExpanded 
+        ? values.map(v => formatValueForTable(v)).join(", ")
+        : values.slice(0, 2).map(v => formatValueForTable(v)).join(", ") + 
+          (values.length > 2 ? `, ... (+${values.length - 2} more)` : "");
+      
+      const escapedSamples = sampleValues.replace(/\|/g, "\\|").replace(/\n/g, " ");
+      result += `| ${propertyUri} | ${values.length} | ${escapedSamples} |\n`;
     }
+    result += "\n";
   }
 
   result += `## Summary\n`;
@@ -668,148 +793,3 @@ async function formatDataConnections(
   return result;
 }
 
-export async function inspectData(
-  uri: string,
-  sparqlEndpoint: string,
-  queryService: QueryService,
-  expandProperties: string[] = [],
-  embeddingHelper?: EmbeddingHelper,
-  relevantToQuery?: string,
-  maxResults?: number
-): Promise<string> {
-  // Single query to get all connections with their values
-  const query = `
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-    PREFIX dc: <http://purl.org/dc/elements/1.1/>
-    PREFIX dct: <http://purl.org/dc/terms/>
-    PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-
-    SELECT DISTINCT ?property ?direction ?value WHERE {
-      {
-        # Outgoing connections: uri -> property -> value
-        SELECT ?property ?value ?direction WHERE {
-          <${uri}> ?property ?value .
-          BIND("outgoing" AS ?direction)
-          FILTER(!isLiteral(?value) || lang(?value) = "" || lang(?value) = "en")
-        }
-      }
-      UNION
-      {
-        # Incoming connections: value -> property -> uri
-        SELECT ?property ?value ?direction WHERE {
-          ?value ?property <${uri}> .
-          BIND("incoming" AS ?direction)
-        }
-      }
-    }
-    GROUP BY ?direction ?property ?value
-    ORDER BY ?direction ?property ?value
-  `;
-
-  const bindings = await queryService.executeQuery(query, [sparqlEndpoint]);
-
-  if (!bindings || bindings.length === 0) {
-    return `No data connections found for URI: <${uri}>`;
-  }
-
-  // Group results by direction and property
-  const outgoingData = new Map<
-    string,
-    Array<{ value: string; label?: string }>
-  >();
-  const incomingData = new Map<
-    string,
-    Array<{ value: string; label?: string }>
-  >();
-
-  for (const binding of bindings) {
-    const propertyUri = binding.property?.value;
-    const direction = binding.direction?.value;
-    const value = binding.value?.value;
-
-    if (!propertyUri || !value) continue;
-
-    const valueEntry = { value, label: undefined };
-
-    if (direction === "outgoing") {
-      if (!outgoingData.has(propertyUri)) {
-        outgoingData.set(propertyUri, []);
-      }
-      outgoingData.get(propertyUri)!.push(valueEntry);
-    } else if (direction === "incoming") {
-      if (!incomingData.has(propertyUri)) {
-        incomingData.set(propertyUri, []);
-      }
-      incomingData.get(propertyUri)!.push(valueEntry);
-    }
-  }
-
-  return await formatDataConnections(
-    uri,
-    outgoingData,
-    incomingData,
-    expandProperties,
-    embeddingHelper,
-    relevantToQuery,
-    maxResults
-  );
-}
-
-export async function inspectOntology(
-  uri: string,
-  sparqlEndpoint: string,
-  queryService: QueryService,
-  embeddingHelper?: EmbeddingHelper,
-  relevantToQuery?: string,
-  maxResults?: number
-): Promise<string> {
-  // First try to inspect as a class
-  const classResult = await inspectClass(uri, sparqlEndpoint, queryService);
-
-  if (classResult.ranges.size > 0 || classResult.domains.size > 0) {
-    return await formatOntologyInspectionResult(
-      classResult,
-      embeddingHelper,
-      relevantToQuery,
-      maxResults
-    );
-  }
-
-  // If not a class, try to inspect as a property
-  const propertyResult = await inspectProperty(
-    uri,
-    sparqlEndpoint,
-    queryService
-  );
-
-  if (propertyResult) {
-    return await formatPropertyInspectionResult(
-      propertyResult,
-      embeddingHelper,
-      relevantToQuery,
-      maxResults
-    );
-  }
-
-  return `No class or property information found for URI: <${uri}>`;
-}
-
-async function inspectMetadata(
-  uri: string,
-  sparqlEndpoint: string,
-  queryService: QueryService,
-  embeddingHelper?: EmbeddingHelper,
-  relevantToQuery?: string,
-  maxResults?: number
-): Promise<string> {
-  return await inspectOntology(
-    uri,
-    sparqlEndpoint,
-    queryService,
-    embeddingHelper,
-    relevantToQuery,
-    maxResults
-  );
-}

@@ -1,8 +1,7 @@
 export interface ResourceResult {
   uri: string;
-  label?: string;
-  description?: string;
-  type?: string;
+  textProp: string;
+  searchText: string;
 }
 
 export interface OntologyItem {
