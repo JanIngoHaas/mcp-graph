@@ -4,46 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running the Server
 
-### Docker (Recommended)
-
-**CPU version:**
-```bash
-docker-compose up mcp-graph
-```
-
-**GPU version (requires nvidia-docker):**
-```bash
-docker-compose --profile cuda up mcp-graph-cuda
-```
-
-**Development mode:**
-```bash
-docker-compose --profile dev up mcp-graph-dev
-```
-
-### Native Development
-
 - `npm install` - Install dependencies
 - `npx tsc` - Compile TypeScript to JavaScript (outputs to dist/)
 
 **Linux/Mac:**
 ```bash
-export DB_PATH="./data/ontology.db"
 export SPARQL_ENDPOINT="https://dbpedia.org/sparql"
+export ENDPOINT_ENGINE="fallback"  # or "qlever"
 npx tsc && node dist/index.js
 ```
 
 **Windows PowerShell:**
 ```powershell
-$env:DB_PATH="./data/ontology.db"
 $env:SPARQL_ENDPOINT="https://dbpedia.org/sparql"
+$env:ENDPOINT_ENGINE="fallback"  # or "qlever"
 npx tsc; node dist/index.js
 ```
 
 ## Environment Variables
 
-- `DB_PATH` - Path for persistent database storage (default: `:memory:`)
 - `SPARQL_ENDPOINT` - SPARQL endpoint URL for RDF data exploration
+- `ENDPOINT_ENGINE` - Engine type for SPARQL endpoint (`qlever` or `fallback`, default: `fallback`)
 - `LOG_FILE` - Path to log file (optional, logs to stderr if not set)
 - `LOG_LEVEL` - Logging level (optional, default: `info`)
 - `EMBEDDING_BATCH_SIZE` - Batch size for embedding processing (default: `32`)
@@ -68,43 +49,18 @@ This is a Model Context Protocol (MCP) server that provides graph exploration ca
 - **@modelcontextprotocol/sdk**: MCP protocol implementation
 - **@comunica/query-sparql**: SPARQL query engine for RDF data
 - **n3**: RDF triple store and utilities
-- **@huggingface/transformers**: AI models for text generation and embeddings
 - **TypeScript**: Primary language with ES2020 target
 
 
-### Data Models
-
-- `ResourceResult`: Represents search results with URI, label, and description
 
 ## Available MCP Tools
 
 Once running, the server provides these tools:
 
-1. **`querySparql`** - Execute SPARQL queries against the knowledge graph
-2. **`searchAll`** - Full-text search for any RDF entities
+1. **`query`** - Execute SPARQL queries against the knowledge graph
+2. **`search`** - Search for RDF entities using boolean queries
 3. **`inspect`** - Unified inspection tool that automatically detects URI type and shows appropriate information (classes/properties show domain/range relationships, entities show data connections)
 
-## Planned Improvements
-
-### Agentic Workflow Enhancement
-
-The current tool set could benefit from improvements to reduce cognitive load on agents:
-
-#### 1. Context-Aware Inspection
-- **Problem**: `inspect` tool can return overwhelming property lists without prioritization
-- **Solution**: Make inspection results conversation-aware
-- **Benefits**:
-  - Filter properties by relevance to user's research goal
-  - Progressive disclosure (show top 3-5 relevant items, with "explore more" options)
-
-#### 2. Query Construction Assistant
-- **Problem**: Large gap between inspection results and SPARQL query construction
-- **Solution**: Add query builder tool that bridges discovery to execution
-- **Benefits**:
-  - Suggests SPARQL patterns based on inspection results
-  - Validates queries before execution
-  - Provides natural language query explanations
-  - Templates for common query patterns
 
 ## Development Notes
 

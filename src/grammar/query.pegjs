@@ -1,44 +1,39 @@
-Query
-  = OrExpression
+Query = Expression
+
+Expression = OrExpression
 
 OrExpression
-  = left:AndExpression _ "OR"i _ right:OrExpression {
+  = left:AndExpression _ OR _ right:OrExpression {
     return { type: 'or', left, right };
   }
   / AndExpression
 
-AndExpression  
-  = left:Primary _ "AND"i _ right:AndExpression {
+AndExpression
+  = left:Factor _ AND _ right:AndExpression {  
     return { type: 'and', left, right };
   }
-  / Primary
+  / Factor
 
-Primary
+Factor
   = QuotedString
   / ParenExpression
-  / WordSequence
+  / ImplicitAndSequence
+  / SingleWord
 
-QuotedString
-  = '"' content:[^"]* '"' {
-    return { type: 'term', value: content.join('') };
+ImplicitAndSequence
+  = first:WORD _ second:WORD rest:(_ word:WORD { return word; })* {
+    return { type: 'words', words: [first, second, ...rest] };
   }
 
-ParenExpression
-  = "(" _ expr:OrExpression _ ")" {
-    return expr;
-  }
+SingleWord = word:WORD { return { type: 'term', value: word }; }
 
-WordSequence
-  = words:Word|1.., _| {
-    if (words.length === 1) {
-      return { type: 'term', value: words[0] };
-    }
-    // Multiple unquoted words become AND (all words must appear)
-    return { type: 'words', words: words };
-  }
+QuotedString = '"' content:[^"]* '"' { return { type: 'term', value: content.join('') }; }
 
-Word
-  = [a-zA-Z0-9_-]+ { return text(); }
+ParenExpression = "(" _ expr:Expression _ ")" { return expr; }
 
-_
-  = [ \t\n\r]*
+// Explicit tokens with word boundary checking
+AND = "AND" !WordChar _
+OR = "OR" !WordChar _
+WORD = !("AND" !WordChar / "OR" !WordChar) chars:[a-zA-Z0-9_-]+ { return chars.join(''); }
+WordChar = [a-zA-Z0-9_-]
+_ = [ \t\n\r]*

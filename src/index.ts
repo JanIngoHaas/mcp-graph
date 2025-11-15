@@ -8,14 +8,21 @@ import os from "os";
 
 async function main() {
   // Get configuration from environment variables only
-  const dbPath: string = process.env.DB_PATH || ":cache:";
   const sparqlEndpoint: string | undefined = process.env.SPARQL_ENDPOINT;
   const logFile: string | undefined = process.env.LOG_FILE;
+  const endpointEngine: string = process.env.ENDPOINT_ENGINE || "fallback";
 
   // Validate sparqlEndpoint is provided
   if (!sparqlEndpoint) {
     throw new Error(
       "SPARQL endpoint is not defined - set SPARQL_ENDPOINT environment variable."
+    );
+  }
+
+  // Validate endpointEngine is valid
+  if (!["qlever", "fallback"].includes(endpointEngine.toLowerCase())) {
+    throw new Error(
+      "Invalid ENDPOINT_ENGINE value. Must be 'qlever' or 'fallback'."
     );
   }
 
@@ -26,18 +33,10 @@ async function main() {
     enableConsole: process.env.NODE_ENV === "development",
   });
 
-  Logger.info("Starting MCP Graph server...", { dbPath, sparqlEndpoint });
+  Logger.info("Starting MCP Graph server...", { sparqlEndpoint, endpointEngine });
 
-  // Check for init mode from argv or environment variable
-  const initOnly =
-    process.argv.includes("--init") || process.env.INIT === "true";
-
-  const server = await createServer(sparqlEndpoint, initOnly, dbPath);
+  const server = await createServer(sparqlEndpoint, endpointEngine.toLowerCase());
   
-  if (initOnly) {
-    Logger.info("Initialization complete. Exiting.");
-    process.exit(0);
-  }
   
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -47,6 +46,6 @@ async function main() {
 main().catch((error) => {
   const errorMessage = error instanceof Error ? error.message : String(error);
   const errorStack = error instanceof Error ? error.stack : undefined;
-  Logger.error("Server error", { error: errorMessage, stack: errorStack });
+  Logger.info("Server error", { error: errorMessage, stack: errorStack });
   process.exit(1);
 });

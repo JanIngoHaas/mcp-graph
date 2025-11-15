@@ -8,8 +8,7 @@ import { QueryParserService, FallbackBackend, QLeverBackend } from "./utils/quer
 
 export async function createServer(
   sparqlEndpoint: string,
-  initOnly: boolean = false,
-  dbPath?: string
+  endpointEngine: string = "fallback"
 ): Promise<McpServer> {
   const server = new McpServer(
     {
@@ -21,8 +20,8 @@ export async function createServer(
 Process (you may deviate if deemed necessary - be flexible!):
 1) Identify key terms in the user's query.
 2) Use search to find relevant classes, properties, and entities.
-3) Use inspect to get detailed information about any URI found in step 2. This automatically detects whether it's a class/property (shows domain/range) or an entity (shows data connections).
-4) Use query to execute a SPARQL query against the Knowledge Graph. You can use the results from searchAll and inspect to construct your query.
+3) Use inspect to get detailed information about any URI found in step 2. This automatically detects whether it's a class/property (shows domain/range) or an entity (shows data connections). IMPORTANT: You MUST provide a relevantToQuery parameter - use the user's original search query or a related semantic query. Results are limited to 15 by default - increase maxResults (e.g., to 1000) if you need to see more.
+4) Use query to execute a SPARQL query against the Knowledge Graph. You can use the results from search and inspect to construct your query.
 `,
     }
   );
@@ -30,12 +29,8 @@ Process (you may deviate if deemed necessary - be flexible!):
   // Initialize services and helpers
   const queryService = new QueryService();
   const embeddingService = new EmbeddingHelper();
-  const searchService = new SearchService(queryService, "fallback");
+  const searchService = new SearchService(queryService, endpointEngine);
   const inspectionService = new InspectionService(queryService, sparqlEndpoint, embeddingService);
-
-  if (initOnly) {
-    return server;
-  }
 
   server.registerTool(
     "query",
@@ -71,19 +66,12 @@ Process (you may deviate if deemed necessary - be flexible!):
     "search",
     {
       description:
-        `Search for RDF entities using boolean queries. Examples:
-- 'Einstein' finds the word Einstein
-- 'Anton Hinkel' finds both words anywhere (AND logic)  
-- '"Anton Hinkel"' finds exact phrase
-- 'Thomas OR Albert' finds either name
-- 'physicist AND Nobel' finds both terms
-- '(quantum mechanics) AND Einstein' uses grouping
-Quoted strings are exact phrases, unquoted multi-words require all words to appear.`,
+        `Search for RDF entities using boolean queries.`,
       inputSchema: {
         query: z
           .string()
           .describe(
-            'Boolean search query. Examples: "Einstein" (exact phrase), Einstein (single term), Thomas OR Albert (union), physicist AND Nobel (intersection), (quantum mechanics) AND Einstein (grouping), Thomas Hinkel (both words must appear). Quoted strings are exact phrases, unquoted multi-words require all words to appear.'
+            `Boolean search query. Examples: '"Albert Einstein"' (exact phrase), 'Albert Einstein' (sentences containing both 'Albert' and 'Einstein'. PREFER THIS - you will have better results and you can later fine-tune your search), 'Thomas OR Albert' (union), 'physicist AND Nobel' (intersection), '(quantum mechanics) AND Einstein' (grouping), 'Thomas Hinkel' (both words must appear). Quoted strings are exact phrases, unquoted multi-words require all words to appear. PREFER UNQUOTED for better results.`
           ),
         limit: z
           .number()
@@ -148,25 +136,25 @@ Quoted strings are exact phrases, unquoted multi-words require all words to appe
           ),
         relevantToQuery: z
           .string()
-          .optional()
           .describe(
-            "Optional query to filter and rank results by semantic relevance. Results will be ordered by similarity to this query."
+            "Query to filter and rank results by semantic relevance. Results will be ordered by similarity to this query."
           ),
         maxResults: z
           .number()
           .optional()
+          .default(15)
           .describe(
-            "Maximum number of results to return per category. Only applies when relevantToQuery is set or when you want to limit output."
+            "Maximum number of results to return per category (default: 15). Set to a high number like 1000 if you need to see all results."
           ),
       },
     },
     async (request: {
       uri: string;
       expandProperties?: string[];
-      relevantToQuery?: string;
+      relevantToQuery: string;
       maxResults?: number;
     }) => {
-      const { uri, expandProperties = [], relevantToQuery, maxResults } = request;
+      const { uri, expandProperties = [], relevantToQuery, maxResults = 15 } = request;
       try {
         const result = await inspectionService.inspect(
           uri,

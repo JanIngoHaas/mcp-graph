@@ -26,7 +26,7 @@ async function testBooleanOrSearch() {
     expect(result).toBeDefined();
     expect(result.length).toBeGreaterThan(0);
     console.log("Neural OR Networks results:", result.length);
-    console.log("Sample results:", result.slice(0, 3).map(r => r.label));
+    console.log("Sample results:", result.slice(0, 3).map(r => r.searchText));
 }
 
 async function testExactPhraseSearch() {
@@ -50,10 +50,17 @@ async function testMultiWordImplicitAnd() {
     console.log("Multi-word (implicit AND) results:", result.length);
     // Should find entities containing both "computer" and "vision"
     const hasComputerVision = result.some(r => 
-        r.label?.toLowerCase().includes('computer') && 
-        r.label?.toLowerCase().includes('vision')
+        r.searchText?.toLowerCase().includes('computer') && 
+        r.searchText?.toLowerCase().includes('vision')
     );
     expect(hasComputerVision).toBeTruthy();
+}
+
+async function testStreamlining() {
+    const result = await searchService.searchAll("vocabulary conversion skos", SPARQL_EP);
+    expect(result).toBeDefined();
+    expect(result.length).toBeGreaterThan(0);
+    console.log("Results", result);
 }
 
 async function testLimitAndOffset() {
@@ -79,3 +86,4 @@ test('Exact Phrase Search - Deep Learning', testExactPhraseSearch, 60000);
 test('Complex Boolean Search - Data Mining', testComplexBooleanSearch, 60000);
 test('Multi-word Implicit AND - Computer Vision', testMultiWordImplicitAnd, 60000);
 test('Pagination with Limit and Offset', testLimitAndOffset, 60000);
+test('Streamlining Paper Search', testStreamlining, 60000);

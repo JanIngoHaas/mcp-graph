@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import * as peggy from "peggy";
+import peggy from "peggy";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,9 +48,20 @@ export class FallbackBackend implements SearchBackend {
 
 export class QLeverBackend implements SearchBackend {
   generateWordsSearchPattern(words: string[], variable: string): string {
+    // Split phrases into individual words for QLever text search
+    const allWords: string[] = [];
+    words.forEach(word => {
+      // If word contains spaces, split it (for quoted phrases)
+      if (word.includes(' ')) {
+        allWords.push(...word.split(/\s+/).filter(w => w.length > 0));
+      } else {
+        allWords.push(word);
+      }
+    });
+    
     // Use anchor pattern for QLever text search
-    const wordConditions = words.map(word => 
-      `?anchor textSearch:contains [ textSearch:word "${word}" ]`
+    const wordConditions = allWords.map(word => 
+      `?anchor textSearch:contains [ textSearch:word "${word.toLocaleLowerCase()}" ]`
     ).join(' . ');
     const entityCondition = `?anchor textSearch:contains [ textSearch:entity ${variable} ]`;
     

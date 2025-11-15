@@ -56,20 +56,13 @@ export class SearchService {
       PREFIX textSearch: <https://qlever.cs.uni-freiburg.de/textSearch/>
       
       SELECT DISTINCT * WHERE {
-        # Search through text using subquery
-        {
-          SELECT DISTINCT ?resource ?textProp ?searchText WHERE {
-            ?resource ?textProp ?searchText .
-            ${this.queryParser.parseAndGeneratePattern(searchQuery, "?searchText")}
-          }
-        }
+        ?resource ?textProp ?searchText .
+        ${this.queryParser.parseAndGeneratePattern(searchQuery, "?searchText")}
       }
       ORDER BY ?resource
       LIMIT ${limit}
       OFFSET ${offset}
     `;
-
-    console.log("Generated search query:\n", query);
 
     const results = await this.queryService.executeQuery(query, [
       sparqlEndpoint,
@@ -97,12 +90,12 @@ export class SearchService {
     let response = `## Found ${results.length} entities\n\n`;
     response += "| URI | Property | Matching Text |\n";
     response += "|-----|----------|---------------|\n";
-    
+    const TEXT_LENTH_LIMIT = 1024;
     results.forEach((result: ResourceResult) => {
       const uri = result.uri.replace(/\|/g, "\\|");
       const textProp = (result.textProp || "").replace(/\|/g, "\\|");
       const searchText = result.searchText 
-        ? (result.searchText.length > 256 
+        ? (result.searchText.length > TEXT_LENTH_LIMIT 
            ? result.searchText.substring(0, 255) + "..." 
            : result.searchText).replace(/\|/g, "\\|").replace(/\n/g, " ")
         : "";

@@ -33,8 +33,8 @@ export class InspectionService {
   public async inspect(
     uri: string,
     expandProperties: string[] = [],
-    relevantToQuery?: string,
-    maxResults?: number
+    relevantToQuery: string,
+    maxResults: number = 15
   ): Promise<string> {
     // First try to inspect as ontology (class/property)
     const classResult = await this.inspectClass(uri);
@@ -42,8 +42,8 @@ export class InspectionService {
     if (classResult.ranges.size > 0 || classResult.domains.size > 0) {
       return await formatOntologyInspectionResult(
         classResult,
-        this.embeddingHelper,
         relevantToQuery,
+        this.embeddingHelper,
         maxResults
       );
     }
@@ -54,8 +54,8 @@ export class InspectionService {
     if (propertyResult) {
       return await formatPropertyInspectionResult(
         propertyResult,
-        this.embeddingHelper,
         relevantToQuery,
+        this.embeddingHelper,
         maxResults
       );
     }
@@ -97,38 +97,17 @@ export class InspectionService {
     let query = `
       PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
       PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-      PREFIX owl: <http://www.w3.org/2002/07/owl#>
-      PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-      PREFIX dc: <http://purl.org/dc/elements/1.1/>
       SELECT ?propURI ?propLabel ?propDescr ?propRange ?propRangeLabel ?propDomain ?propDomainLabel WHERE {
         BIND(<${uri}> AS ?propURI) .
         
-        # Get labels (rdfs:label, skos:prefLabel, dc:title)
-        OPTIONAL { ?propURI rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
-        OPTIONAL { ?propURI skos:prefLabel ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
-        OPTIONAL { ?propURI dc:title ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
-        BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle) AS ?propLabel)
-
-        # Get comments (rdfs:comment, skos:note, dc:description)
-        OPTIONAL { ?propURI rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
-        OPTIONAL { ?propURI skos:note ?skosNote . FILTER(LANG(?skosNote) = "en" || LANG(?skosNote) = "") }
-        OPTIONAL { ?propURI dc:description ?dcDescr . FILTER(LANG(?dcDescr) = "en" || LANG(?dcDescr) = "") }
-        BIND(COALESCE(?rdfsComment, ?skosNote, ?dcDescr) AS ?propDescr)
+        OPTIONAL { ?propURI rdfs:label ?propLabel }
+        OPTIONAL { ?propURI rdfs:comment ?propDescr }
 
         ?propURI rdfs:domain ?propDomain .
         ?propURI rdfs:range ?propRange .
         
-
-        # Get labels for range and domain properties
-        OPTIONAL { ?propRange rdfs:label ?rangeRdfsLabel . FILTER(LANG(?rangeRdfsLabel) = "en" || LANG(?rangeRdfsLabel) = "") }
-        OPTIONAL { ?propRange skos:prefLabel ?rangeSkosLabel . FILTER(LANG(?rangeSkosLabel) = "en" || LANG(?rangeSkosLabel) = "") }
-        OPTIONAL { ?propRange dc:title ?rangeDcTitle . FILTER(LANG(?rangeDcTitle) = "en" || LANG(?rangeDcTitle) = "") }
-        BIND(COALESCE(?rangeRdfsLabel, ?rangeSkosLabel, ?rangeDcTitle) AS ?propRangeLabel)
-
-        OPTIONAL { ?propDomain rdfs:label ?domainRdfsLabel . FILTER(LANG(?domainRdfsLabel) = "en" || LANG(?domainRdfsLabel) = "") }
-        OPTIONAL { ?propDomain skos:prefLabel ?domainSkosLabel . FILTER(LANG(?domainSkosLabel) = "en" || LANG(?domainSkosLabel) = "") }
-        OPTIONAL { ?propDomain dc:title ?domainDcTitle . FILTER(LANG(?domainDcTitle) = "en" || LANG(?domainDcTitle) = "") }
-        BIND(COALESCE(?domainRdfsLabel, ?domainSkosLabel, ?domainDcTitle) AS ?propDomainLabel)
+        OPTIONAL { ?propRange rdfs:label ?propRangeLabel }
+        OPTIONAL { ?propDomain rdfs:label ?propDomainLabel }
       }`;
 
     const bindings = await this.queryService.executeQuery(query, [this.sparqlEndpoint]);
@@ -251,28 +230,15 @@ export class InspectionService {
     SELECT DISTINCT ?classURI ?classLabel ?classDescr ?propRange ?propRangeLabel ?propDomain ?propDomainLabel WHERE {
       BIND(<${uri}> AS ?classURI) .
 
-      # Get labels and description for the main class
-      OPTIONAL { ?classURI rdfs:label ?rdfsLabel . FILTER(LANG(?rdfsLabel) = "en" || LANG(?rdfsLabel) = "") }
-      OPTIONAL { ?classURI skos:prefLabel ?skosLabel . FILTER(LANG(?skosLabel) = "en" || LANG(?skosLabel) = "") }
-      OPTIONAL { ?classURI dc:title ?dcTitle . FILTER(LANG(?dcTitle) = "en" || LANG(?dcTitle) = "") }
-      BIND(COALESCE(?rdfsLabel, ?skosLabel, ?dcTitle) AS ?classLabel)
-
-      OPTIONAL { ?classURI rdfs:comment ?rdfsComment . FILTER(LANG(?rdfsComment) = "en" || LANG(?rdfsComment) = "") }
-      OPTIONAL { ?classURI skos:note ?skosNote . FILTER(LANG(?skosNote) = "en" || LANG(?skosNote) = "") }
-      OPTIONAL { ?classURI dc:description ?dcDescription . FILTER(LANG(?dcDescription) = "en" || LANG(?dcDescription) = "") }
-      OPTIONAL { ?classURI dbo:abstract ?dboAbstract . FILTER(LANG(?dboAbstract) = "en" || LANG(?dboAbstract) = "") }
-      BIND(COALESCE(?rdfsComment, ?skosNote, ?dcDescription, ?dboAbstract) AS ?classDescr)
+      OPTIONAL { ?classURI rdfs:label ?classLabel }
+      OPTIONAL { ?classURI rdfs:comment ?classDescr }
 
       # Find properties that have this class + parent classes (transitive closure) as range
       {
         SELECT DISTINCT ?propRange ?propRangeLabel WHERE {
           <${uri}> rdfs:subClassOf* ?rangeClass .
           ?propRange rdfs:range ?rangeClass .
-          # Get labels for range properties
-          OPTIONAL { ?propRange rdfs:label ?propRangeRdfsLabel . FILTER(LANG(?propRangeRdfsLabel) = "en" || LANG(?propRangeRdfsLabel) = "") }
-          OPTIONAL { ?propRange skos:prefLabel ?propRangeSkosLabel . FILTER(LANG(?propRangeSkosLabel) = "en" || LANG(?propRangeSkosLabel) = "") }
-          OPTIONAL { ?propRange dc:title ?propRangeDcTitle . FILTER(LANG(?propRangeDcTitle) = "en" || LANG(?propRangeDcTitle) = "") }
-          BIND(COALESCE(?propRangeRdfsLabel, ?propRangeSkosLabel, ?propRangeDcTitle) AS ?propRangeLabel)
+          OPTIONAL { ?propRange rdfs:label ?propRangeLabel }
         } LIMIT 100000
       }
       
@@ -281,11 +247,7 @@ export class InspectionService {
         SELECT DISTINCT ?propDomain ?propDomainLabel WHERE {
           <${uri}> rdfs:subClassOf* ?domainClass .
           ?propDomain rdfs:domain ?domainClass .
-          # Get labels for domain properties
-          OPTIONAL { ?propDomain rdfs:label ?propDomainRdfsLabel . FILTER(LANG(?propDomainRdfsLabel) = "en" || LANG(?propDomainRdfsLabel) = "") }
-          OPTIONAL { ?propDomain skos:prefLabel ?propDomainSkosLabel . FILTER(LANG(?propDomainSkosLabel) = "en" || LANG(?propDomainSkosLabel) = "") }
-          OPTIONAL { ?propDomain dc:title ?propDomainDcTitle . FILTER(LANG(?propDomainDcTitle) = "en" || LANG(?propDomainDcTitle) = "") }
-          BIND(COALESCE(?propDomainRdfsLabel, ?propDomainSkosLabel, ?propDomainDcTitle) AS ?propDomainLabel)
+          OPTIONAL { ?propDomain rdfs:label ?propDomainLabel }
         } LIMIT 100000
       }
     } LIMIT 100000`;
@@ -334,8 +296,8 @@ export class InspectionService {
   private async inspectData(
     uri: string,
     expandProperties: string[] = [],
-    relevantToQuery?: string,
-    maxResults?: number
+    relevantToQuery: string,
+    maxResults: number = 15
   ): Promise<string> {
     // Single query to get all connections with their values
     const query = `
@@ -411,8 +373,8 @@ export class InspectionService {
       outgoingData,
       incomingData,
       expandProperties,
-      this.embeddingHelper,
       relevantToQuery,
+      this.embeddingHelper,
       maxResults
     );
   }
@@ -428,9 +390,9 @@ async function formatPropertyInspectionResult(
     domainHierarchies: Map<string, string>;
     rangeHierarchies: Map<string, string>;
   },
+  relevantToQuery: string,
   embeddingHelper?: EmbeddingHelper,
-  relevantToQuery?: string,
-  maxResults?: number
+  maxResults: number = 15
 ): Promise<string> {
   let result = `# Property: ${inspection.label}\nURI: <${inspection.uri}>\n\n`;
 
@@ -439,11 +401,11 @@ async function formatPropertyInspectionResult(
     result += `## Description\n${inspection.description}\n\n`;
   }
 
-  // Filter domains by relevance if query provided
+  // Filter domains by relevance
   let filteredDomains = Array.from(inspection.domains.entries());
   let filteredRanges = Array.from(inspection.ranges.entries());
 
-  if (relevantToQuery && embeddingHelper) {
+  if (embeddingHelper) {
     const [domainScores, rangeScores] = await Promise.all([
       rankByRelevance(
         filteredDomains.map(([uri, label]) => `${label}: ${uri}`),
@@ -460,15 +422,15 @@ async function formatPropertyInspectionResult(
     filteredDomains = filteredDomains
       .map(([uri, label], idx) => ({ uri, label, score: domainScores[idx] }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults || filteredDomains.length)
+      .slice(0, maxResults)
       .map(({ uri, label }) => [uri, label] as [string, string]);
 
     filteredRanges = filteredRanges
       .map(([uri, label], idx) => ({ uri, label, score: rangeScores[idx] }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults || filteredRanges.length)
+      .slice(0, maxResults)
       .map(({ uri, label }) => [uri, label] as [string, string]);
-  } else if (maxResults) {
+  } else {
     filteredDomains = filteredDomains.slice(0, maxResults);
     filteredRanges = filteredRanges.slice(0, maxResults);
   }
@@ -511,15 +473,7 @@ async function formatPropertyInspectionResult(
   const totalDomains = inspection.domains.size;
   const totalRanges = inspection.ranges.size;
 
-  if (relevantToQuery || maxResults) {
-    result += `## Showing: ${domainCount} of ${totalDomains} domains, ${rangeCount} of ${totalRanges} ranges`;
-    if (relevantToQuery) {
-      result += ` (filtered by: "${relevantToQuery}")`;
-    }
-    result += `\n`;
-  } else {
-    result += `## Total: ${domainCount} domains, ${rangeCount} ranges\n`;
-  }
+  result += `## Showing: ${domainCount} of ${totalDomains} domains, ${rangeCount} of ${totalRanges} ranges (filtered by: "${relevantToQuery}")\n`;
 
   return result;
 }
@@ -556,9 +510,9 @@ async function formatOntologyInspectionResult(
     description?: string;
     uri: string;
   },
+  relevantToQuery: string,
   embeddingHelper?: EmbeddingHelper,
-  relevantToQuery?: string,
-  maxResults?: number
+  maxResults: number = 15
 ): Promise<string> {
   let result = `# Class: ${inspection.label}\nURI: <${inspection.uri}>\n\n`;
 
@@ -569,7 +523,7 @@ async function formatOntologyInspectionResult(
   let filteredDomains = Array.from(inspection.domains.entries());
   let filteredRanges = Array.from(inspection.ranges.entries());
 
-  if (relevantToQuery && embeddingHelper) {
+  if (embeddingHelper) {
     const [domainScores, rangeScores] = await Promise.all([
       rankByRelevance(
         filteredDomains.map(([uri, label]) => `${label}: ${uri}`),
@@ -586,15 +540,15 @@ async function formatOntologyInspectionResult(
     filteredDomains = filteredDomains
       .map(([uri, label], idx) => ({ uri, label, score: domainScores[idx] }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults || filteredDomains.length)
+      .slice(0, maxResults)
       .map(({ uri, label }) => [uri, label] as [string, string]);
 
     filteredRanges = filteredRanges
       .map(([uri, label], idx) => ({ uri, label, score: rangeScores[idx] }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults || filteredRanges.length)
+      .slice(0, maxResults)
       .map(({ uri, label }) => [uri, label] as [string, string]);
-  } else if (maxResults) {
+  } else {
     filteredDomains = filteredDomains.slice(0, maxResults);
     filteredRanges = filteredRanges.slice(0, maxResults);
   }
@@ -626,15 +580,7 @@ async function formatOntologyInspectionResult(
   const totalDomains = inspection.domains.size;
   const totalRanges = inspection.ranges.size;
 
-  if (relevantToQuery || maxResults) {
-    result += `## Showing: ${domainCount} of ${totalDomains} outgoing connections, ${rangeCount} of ${totalRanges} incoming connections`;
-    if (relevantToQuery) {
-      result += ` (filtered by: "${relevantToQuery}")`;
-    }
-    result += `\n`;
-  } else {
-    result += `## Total: ${domainCount} outgoing connections, ${rangeCount} incoming connections\n`;
-  }
+  result += `## Showing: ${domainCount} of ${totalDomains} outgoing connections, ${rangeCount} of ${totalRanges} incoming connections (filtered by: "${relevantToQuery}")\n`;
 
   return result;
 }
@@ -648,17 +594,6 @@ function formatValue(valueEntry: { value: string; label?: string }): string {
     return `    - ${valueEntry.value} (URI)\n`;
   }
   return `    - ${valueEntry.value}\n`;
-}
-
-// Helper function to format value for table display
-function formatValueForTable(valueEntry: { value: string; label?: string }): string {
-  if (
-    valueEntry.value.startsWith("http://") ||
-    valueEntry.value.startsWith("https://")
-  ) {
-    return getReadableName(valueEntry.value);
-  }
-  return valueEntry.value;
 }
 
 // Helper function to format property section
@@ -688,16 +623,16 @@ function formatPropertySection(
   return section + "\n";
 }
 
-const MAX_VALUES_TO_SHOW = 2;
+const MAX_VALUES_TO_SHOW = 4;
 
 async function formatDataConnections(
   uri: string,
   outgoingData: Map<string, Array<{ value: string; label?: string }>>,
   incomingData: Map<string, Array<{ value: string; label?: string }>>,
   expandProperties: string[],
+  relevantToQuery: string,
   embeddingHelper?: EmbeddingHelper,
-  relevantToQuery?: string,
-  maxResults?: number
+  maxResults: number = 15
 ): Promise<string> {
   let result = `# Data connections for: ${getReadableName(
     uri
@@ -706,8 +641,8 @@ async function formatDataConnections(
   let filteredOutgoing = Array.from(outgoingData.entries());
   let filteredIncoming = Array.from(incomingData.entries());
 
-  // Filter by relevance if query provided
-  if (relevantToQuery && embeddingHelper) {
+  // Filter by relevance
+  if (embeddingHelper) {
     const [outgoingScores, incomingScores] = await Promise.all([
       rankByRelevance(
         filteredOutgoing.map(([uri, _]) => getReadableName(uri)),
@@ -724,71 +659,61 @@ async function formatDataConnections(
     filteredOutgoing = filteredOutgoing
       .map(([uri, values], idx) => ({ uri, values, score: outgoingScores[idx] }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults || filteredOutgoing.length)
+      .slice(0, maxResults)
       .map(({ uri, values }) => [uri, values] as [string, Array<{ value: string; label?: string }>]);
 
     filteredIncoming = filteredIncoming
       .map(([uri, values], idx) => ({ uri, values, score: incomingScores[idx] }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults || filteredIncoming.length)
+      .slice(0, maxResults)
       .map(({ uri, values }) => [uri, values] as [string, Array<{ value: string; label?: string }>]);
-  } else if (maxResults) {
+  } else {
     filteredOutgoing = filteredOutgoing.slice(0, maxResults);
     filteredIncoming = filteredIncoming.slice(0, maxResults);
   }
 
   if (filteredOutgoing.length > 0) {
-    result += `## Properties (${filteredOutgoing.length}${
-      relevantToQuery || maxResults ? ` of ${outgoingData.size}` : ""
-    })\n`;
+    result += `## Properties (${filteredOutgoing.length} of ${outgoingData.size})\n`;
     result += `*<${uri}> --[Property]--> [Sample Values]*\n\n`;
-    result += "| Property | Count | Sample Values |\n";
-    result += "|----------|-------|---------------|\n";
+    result += "| Property | Sample Values |\n";
+    result += "|----------|---------------|\n";
     
-    for (const [propertyUri, values] of filteredOutgoing) {
+    for (const [propertyUri, values_] of filteredOutgoing) {
+      const values = values_.map(v => v.value);
       const isExpanded = expandProperties.includes(propertyUri);
       const sampleValues = isExpanded 
-        ? values.map(v => formatValueForTable(v)).join(", ")
-        : values.slice(0, 2).map(v => formatValueForTable(v)).join(", ") + 
-          (values.length > 2 ? `, ... (+${values.length - 2} more)` : "");
+        ? values.join(", ")
+        : values.slice(0, MAX_VALUES_TO_SHOW).join(", ") + 
+          (values.length > MAX_VALUES_TO_SHOW ? `, ... (+${values.length - MAX_VALUES_TO_SHOW} more)` : "");
       
       const escapedSamples = sampleValues.replace(/\|/g, "\\|").replace(/\n/g, " ");
-      result += `| \`${propertyUri}\` | ${values.length} | ${escapedSamples} |\n`;
+      result += `| \`${propertyUri}\` | ${escapedSamples} |\n`;
     }
     result += "\n";
   }
 
   if (filteredIncoming.length > 0) {
-    result += `## References (${filteredIncoming.length}${
-      relevantToQuery || maxResults ? ` of ${incomingData.size}` : ""
-    })\n`;
+    result += `## References (${filteredIncoming.length} of ${incomingData.size})\n`;
     result += `*[Sample Entities] --[Property]--> <${uri}>*\n\n`;
-    result += "| Property | Count | Sample Entities |\n";
-    result += "|----------|-------|----------------|\n";
+    result += "| Property | Sample Entities |\n";
+    result += "|----------|----------------|\n";
     
-    for (const [propertyUri, values] of filteredIncoming) {
+    for (const [propertyUri, values_] of filteredIncoming) {
+      const values = values_.map(v => v.value);
       const isExpanded = expandProperties.includes(propertyUri);
       const sampleValues = isExpanded 
-        ? values.map(v => formatValueForTable(v)).join(", ")
-        : values.slice(0, 2).map(v => formatValueForTable(v)).join(", ") + 
-          (values.length > 2 ? `, ... (+${values.length - 2} more)` : "");
+        ? values.join(", ")
+        : values.slice(0, MAX_VALUES_TO_SHOW).join(", ") + 
+          (values.length > MAX_VALUES_TO_SHOW ? `, ... (+${values.length - MAX_VALUES_TO_SHOW} more)` : "");
       
       const escapedSamples = sampleValues.replace(/\|/g, "\\|").replace(/\n/g, " ");
-      result += `| ${propertyUri} | ${values.length} | ${escapedSamples} |\n`;
+      result += `| ${propertyUri} | ${escapedSamples} |\n`;
     }
     result += "\n";
   }
 
   result += `## Summary\n`;
-  if (relevantToQuery || maxResults) {
-    result += `- Showing: ${filteredOutgoing.length} of ${outgoingData.size} properties, ${filteredIncoming.length} of ${incomingData.size} references`;
-    if (relevantToQuery) {
-      result += ` (filtered by: "${relevantToQuery}")`;
-    }
-    result += `\n`;
-  } else {
-    result += `- Total: ${outgoingData.size} properties, ${incomingData.size} references\n`;
-  }
+  result += `- Showing: ${filteredOutgoing.length} of ${outgoingData.size} properties, ${filteredIncoming.length} of ${incomingData.size} references (filtered by: "${relevantToQuery}")\n`;
 
   return result;
 }

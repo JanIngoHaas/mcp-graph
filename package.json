@@ -1,10 +1,10 @@
 {
-  "name": "sparql-mcp",
+  "name": "kg-mcp",
   "version": "1.0.0",
   "dependencies": {
-    "@comunica/query-sparql": "4.3.0",
-    "@huggingface/transformers": "3.7.0",
-    "@modelcontextprotocol/sdk": "1.17.0",
+    "@comunica/query-sparql": "4.4.1",
+    "@huggingface/transformers": "3.7.6",
+    "@modelcontextprotocol/sdk": "1.22.0",
     "n3": "1.26.0",
     "peggy": "^5.0.6",
     "winston": "3.17.0",
@@ -17,12 +17,12 @@
   },
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "start": "tsc && node dist/index.js",
-    "init": "tsc && node dist/index.js --init",
-    "test": "tsc && vitest"
+    "build": "tsc && cp -r src/grammar dist/ && chmod +x dist/index.js",
+    "start": "npm run build && node dist/index.js",
+    "test": "npm run build && vitest",
+    "init": "npm run build && node dist/init-model.js"
   },
   "bin": {
-    "sparql-mcp": "dist/index.js"
+    "kg-mcp": "dist/index.js"
   }
 }
