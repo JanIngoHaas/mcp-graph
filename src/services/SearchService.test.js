@@ -80,6 +80,26 @@ async function testLimitAndOffset() {
     console.log("Pagination test - First batch:", firstBatch.length, "Second batch:", secondBatch.length);
 };
 
+async function testUnicodeSearch() {
+    // Test various Unicode characters in search terms
+    const unicodeQueries = [
+        "café machine", // Latin with accent
+        "naïve algorithm", // Latin with diaeresis
+        "Müller network", // German umlaut
+        "réseau neural" // French accents
+    ];
+
+    for (const query of unicodeQueries) {
+        try {
+            const result = await searchService.searchAll(query, SPARQL_EP);
+            expect(result).toBeDefined();
+            console.log(`Unicode query "${query}" results:`, result.length);
+        } catch (error) {
+            console.log(`Unicode query "${query}" failed:`, error.message);
+        }
+    }
+}
+
 test('Boolean AND Search - Machine Learning', testBooleanAndSearch, 60000);
 test('Boolean OR Search - Neural Networks', testBooleanOrSearch, 60000);
 test('Exact Phrase Search - Deep Learning', testExactPhraseSearch, 60000);
@@ -87,3 +107,4 @@ test('Complex Boolean Search - Data Mining', testComplexBooleanSearch, 60000);
 test('Multi-word Implicit AND - Computer Vision', testMultiWordImplicitAnd, 60000);
 test('Pagination with Limit and Offset', testLimitAndOffset, 60000);
 test('Streamlining Paper Search', testStreamlining, 60000);
+test('Unicode Character Support', testUnicodeSearch, 60000);

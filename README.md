@@ -39,7 +39,7 @@ Now, you can use the following config file in your favourite MCP Client
       "args": ["kg-mcp"],
       "env": {
         "SPARQL_ENDPOINT": "https://sparql.dblp.org/sparql",
-        "ENDPOING_ENGINE": "qlever"
+        "ENDPOINT_ENGINE": "qlever"
       }
     }
   }

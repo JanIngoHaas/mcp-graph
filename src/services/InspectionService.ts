@@ -597,31 +597,31 @@ function formatValue(valueEntry: { value: string; label?: string }): string {
 }
 
 // Helper function to format property section
-function formatPropertySection(
-  propertyIndex: number,
-  propertyUri: string,
-  values: Array<{ value: string; label?: string }>,
-  isExpanded: boolean,
-  valueLabel: string
-): string {
-  let section = `${propertyIndex}. ${propertyUri}\n`;
+// function formatPropertySection(
+//   propertyIndex: number,
+//   propertyUri: string,
+//   values: Array<{ value: string; label?: string }>,
+//   isExpanded: boolean,
+//   valueLabel: string
+// ): string {
+//   let section = `${propertyIndex}. ${propertyUri}\n`;
 
-  if (isExpanded) {
-    section += `   ${valueLabel} (${values.length}):\n`;
-    section += values.map(formatValue).join("");
-  } else {
-    // Show preview of first few values
-    section += `   ${valueLabel} (${values.length}):\n`;
-    const limitedValues = values.slice(0, MAX_VALUES_TO_SHOW);
-    section += limitedValues.map(formatValue).join("");
-    if (values.length > MAX_VALUES_TO_SHOW) {
-      section += `    - ... and ${
-        values.length - MAX_VALUES_TO_SHOW
-      } more ${valueLabel.toLowerCase()}\n`;
-    }
-  }
-  return section + "\n";
-}
+//   if (isExpanded) {
+//     section += `   ${valueLabel} (${values.length}):\n`;
+//     section += values.map(formatValue).join("");
+//   } else {
+//     // Show preview of first few values
+//     section += `   ${valueLabel} (${values.length}):\n`;
+//     const limitedValues = values.slice(0, MAX_VALUES_TO_SHOW);
+//     section += limitedValues.map(formatValue).join("");
+//     if (values.length > MAX_VALUES_TO_SHOW) {
+//       section += `    - ... and ${
+//         values.length - MAX_VALUES_TO_SHOW
+//       } more ${valueLabel.toLowerCase()}\n`;
+//     }
+//   }
+//   return section + "\n";
+// }
 
 const MAX_VALUES_TO_SHOW = 4;
 

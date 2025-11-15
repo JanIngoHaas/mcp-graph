@@ -34,6 +34,6 @@ ParenExpression = "(" _ expr:Expression _ ")" { return expr; }
 // Explicit tokens with word boundary checking
 AND = "AND" !WordChar _
 OR = "OR" !WordChar _
-WORD = !("AND" !WordChar / "OR" !WordChar) chars:[a-zA-Z0-9_-]+ { return chars.join(''); }
-WordChar = [a-zA-Z0-9_-]
+WORD = !("AND" !WordChar / "OR" !WordChar) chars:WordChar+ { return chars.join(''); }
+WordChar = [^ \t\n\r"()]
 _ = [ \t\n\r]*
