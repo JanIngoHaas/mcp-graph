@@ -23,7 +23,10 @@ Once running, the server provides these tools to MCP clients:
 ## Installation
 
 ```bash
-npm install -g kg-mcp
+npm i
+npm run build
+npm run init
+npm install -g
 ```
 
 Now, you can use the following config file in your favourite MCP Client
@@ -33,9 +36,10 @@ Now, you can use the following config file in your favourite MCP Client
   "mcpServers": {
     "kg-mcp": {
       "command": "npx",
-      "arg": ["kg-mcp"],
+      "args": ["kg-mcp"],
       "env": {
-        "SPARQL_ENDPOINT": "https://dbpedia.org/sparql"
+        "SPARQL_ENDPOINT": "https://sparql.dblp.org/sparql",
+        "ENDPOING_ENGINE": "qlever"
       }
     }
   }
@@ -49,6 +53,7 @@ Add this to your MCP client configuration:
 **Environment Variables:**
 
 - `SPARQL_ENDPOINT`: SPARQL endpoint URL for RDF data exploration; Required
+- `ENDPOINT_ENGINE`: The SPARQL Engine powering the endpoint; possible values: 'qlever', 'fallback' (default)
 - `LOG_FILE`: Path to log file (optional, logs to stderr if not set)
 - `LOG_LEVEL`: Logging level (optional, default: `info`)
 - `EMBEDDING_BATCH_SIZE`: Batch size for embedding processing (optional, default: 32)
