@@ -64,7 +64,7 @@ export class SearchService {
       OFFSET ${offset}
     `;
 
-    const results = await this.queryService.executeQuery(query, [
+    const results = await this.queryService.executeQueryRaw(query, [
       sparqlEndpoint,
     ]);
 

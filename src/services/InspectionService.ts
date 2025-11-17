@@ -110,7 +110,7 @@ export class InspectionService {
         OPTIONAL { ?propDomain rdfs:label ?propDomainLabel }
       }`;
 
-    const bindings = await this.queryService.executeQuery(query, [this.sparqlEndpoint]);
+    const bindings = await this.queryService.executeQueryRaw(query, [this.sparqlEndpoint]);
 
     // Check if the response contains results
     if (!bindings || bindings.length === 0) {
@@ -159,7 +159,7 @@ export class InspectionService {
           FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
         }
       `;
-      const hierarchyBindings = await this.queryService.executeQuery(hierarchyQuery, [
+      const hierarchyBindings = await this.queryService.executeQueryRaw(hierarchyQuery, [
         this.sparqlEndpoint,
       ]);
       if (
@@ -181,7 +181,7 @@ export class InspectionService {
           FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
         }
       `;
-      const hierarchyBindings = await this.queryService.executeQuery(hierarchyQuery, [
+      const hierarchyBindings = await this.queryService.executeQueryRaw(hierarchyQuery, [
         this.sparqlEndpoint,
       ]);
       if (
@@ -252,7 +252,7 @@ export class InspectionService {
       }
     } LIMIT 100000`;
 
-  const bindings = await this.queryService.executeQuery(query, [this.sparqlEndpoint]);
+  const bindings = await this.queryService.executeQueryRaw(query, [this.sparqlEndpoint]);
 
   // Process results
   for (const binding of bindings) {
@@ -314,7 +314,7 @@ export class InspectionService {
           SELECT ?property ?value ?direction WHERE {
             <${uri}> ?property ?value .
             BIND("outgoing" AS ?direction)
-            FILTER(!isLiteral(?value) || lang(?value) = "" || lang(?value) = "en")
+            # FILTER(!isLiteral(?value) || lang(?value) = "" || lang(?value) = "en")
           }
         }
         UNION
@@ -330,7 +330,7 @@ export class InspectionService {
       ORDER BY ?direction ?property ?value
     `;
 
-    const bindings = await this.queryService.executeQuery(query, [this.sparqlEndpoint]);
+    const bindings = await this.queryService.executeQueryRaw(query, [this.sparqlEndpoint]);
 
     if (!bindings || bindings.length === 0) {
       return `No data connections found for URI: <${uri}>`;
@@ -713,7 +713,7 @@ async function formatDataConnections(
   }
 
   result += `## Summary\n`;
-  result += `- Showing: ${filteredOutgoing.length} of ${outgoingData.size} properties, ${filteredIncoming.length} of ${incomingData.size} references (filtered by: "${relevantToQuery}")\n`;
+  result += `Showing: ${filteredOutgoing.length} of ${outgoingData.size} properties, ${filteredIncoming.length} of ${incomingData.size} references (filtered by: "${relevantToQuery}")\n`;
 
   return result;
 }
