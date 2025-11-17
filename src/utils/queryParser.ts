@@ -61,7 +61,7 @@ export class QLeverBackend implements SearchBackend {
     
     // Use anchor pattern for QLever text search
     const wordConditions = allWords.map(word => 
-      `?anchor textSearch:contains [ textSearch:word "${word.toLocaleLowerCase()}" ]`
+      `?anchor textSearch:contains [ textSearch:word "${word.toLocaleLowerCase()}*" ]`
     ).join(' . ');
     const entityCondition = `?anchor textSearch:contains [ textSearch:entity ${variable} ]`;
     

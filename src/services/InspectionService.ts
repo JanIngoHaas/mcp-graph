@@ -585,17 +585,6 @@ async function formatOntologyInspectionResult(
   return result;
 }
 
-// Helper function to format a single value entry
-function formatValue(valueEntry: { value: string; label?: string }): string {
-  if (
-    valueEntry.value.startsWith("http://") ||
-    valueEntry.value.startsWith("https://")
-  ) {
-    return `    - ${valueEntry.value} (URI)\n`;
-  }
-  return `    - ${valueEntry.value}\n`;
-}
-
 // Helper function to format property section
 // function formatPropertySection(
 //   propertyIndex: number,

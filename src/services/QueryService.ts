@@ -30,6 +30,7 @@ export class QueryService {
         result[variable.value] = {
           value: term.value,
           type: term.termType,
+          language: (term as any).language || undefined,
         };
       }
       return result;
@@ -47,18 +48,32 @@ export class QueryService {
     });
   }
 
-  async executeQuery(query: string, sources: Array<string>): Promise<string> {
+  async executeQuery(query: string, sources: Array<string>, language: string, maxRows: number = 100): Promise<string> {
     const results = await this.executeQueryRaw(query, sources);
 
-    if (results.length === 0) {
-      return "No results found.";
+    let languageFilteredResults = results;
+    if (language !== "all") {
+      languageFilteredResults = results.filter((result) => {
+        return Object.values(result).some((field: any) => {
+          // Include if field has matching language, no language (undefined), or empty string language
+          return !field.language || field.language === "" || field.language === language;
+        });
+      });
     }
 
+    if (languageFilteredResults.length === 0) {
+      return `No results found for language "${language}".`;
+    }
+
+    // Apply maxRows limit
+    const limitedResults = languageFilteredResults.slice(0, maxRows);
+    const wasTruncated = languageFilteredResults.length > maxRows;
+
     // Extract headers from the first result
-    const headers = Object.keys(results[0]);
+    const headers = Object.keys(limitedResults[0]);
 
     // Convert results to rows of string values
-    const rows = results.map((result) => {
+    const rows = limitedResults.map((result) => {
       return headers.map(header => result[header]?.value || '');
     });
 
@@ -67,6 +82,13 @@ export class QueryService {
     const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
     const dataRows = rows.map(row => `| ${row.join(' | ')} |`);
 
-    return [headerRow, separatorRow, ...dataRows].join('\n');
+    let resultTable = [headerRow, separatorRow, ...dataRows].join('\n');
+
+    // Add truncation notice if results were limited
+    if (wasTruncated) {
+      resultTable += `\n\n**Note**: Results were limited to ${maxRows} rows. Total matching results: ${languageFilteredResults.length}. To see more results, increase the \`maxRows\` parameter.`;
+    }
+
+    return resultTable;
   }
 }

@@ -36,24 +36,38 @@ Process (you may deviate if deemed necessary - be flexible!):
     "query",
     {
       description:
-        "Execute a SPARQL query against the Knowledge Graph. Search for useable properties first to know what to query.",
+        "Execute a SPARQL query against the Knowledge Graph with language filtering and row limiting. Search for useable properties first to know what to query.",
       inputSchema: {
         query: z
           .string()
           .describe(
             "The SPARQL query to execute - must be a valid SPARQL query. Define any PREFIXes yourself if needed."
           ),
+        language: z
+          .string()
+          .optional()
+          .default("all")
+          .describe(
+            "Language code for filtering results. Use ISO 639-1 two-letter codes like 'en' for English, 'de' for German, 'fr' for French, 'es' for Spanish, etc. Results will include entries with this language tag or language-neutral content. Default: 'all' languages - should be fine in many cases."
+          ),
+        maxRows: z
+          .number()
+          .optional()
+          .default(100)
+          .describe(
+            "Maximum number of rows to return (default: 100)."
+          ),
       },
     },
-    async (request: { query: string }) => {
-      const { query } = request;
-      const res = await queryService.executeQuery(query, [sparqlEndpoint]);
+    async (request: { query: string; language: string; maxRows?: number }) => {
+      const { query, language, maxRows = 100 } = request;
+      const res = await queryService.executeQuery(query, [sparqlEndpoint], language, maxRows);
 
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(res, null, 2),
+            text: res,
           },
         ],
       };
@@ -71,7 +85,7 @@ Process (you may deviate if deemed necessary - be flexible!):
         query: z
           .string()
           .describe(
-            `Boolean search query. Examples: '"Albert Einstein"' (exact phrase), 'Albert Einstein' (sentences containing both 'Albert' and 'Einstein'. PREFER THIS - you will have better results and you can later fine-tune your search), 'Thomas OR Albert' (union), 'physicist AND Nobel' (intersection), '(quantum mechanics) AND Einstein' (grouping), 'Thomas Hinkel' (both words must appear). Quoted strings are exact phrases, unquoted multi-words require all words to appear. PREFER UNQUOTED for better results.`
+            `Boolean search query using syntactic, fuzzy search algorithm (be more precise). Examples: '"Albert Einstein"' (exact phrase), 'Albert Einstein' (sentences containing both 'Albert' and 'Einstein'. PREFER THIS - you will have better results and you can later fine-tune your search), 'Thomas OR Albert' (union), 'physicist AND Nobel' (intersection), '(quantum mechanics) AND Einstein' (grouping), 'Thomas Hinkel' (both words must appear). Quoted strings are exact phrases, unquoted multi-words require all words to appear. PREFER UNQUOTED for better results.`
           ),
         limit: z
           .number()
