@@ -100,7 +100,7 @@ export class SearchService {
            : result.searchText).replace(/\|/g, "\\|").replace(/\n/g, " ")
         : "";
       
-      response += `| \`${uri}\` | \`${textProp}\` | ${searchText} |\n`;
+      response += `| ${uri} | ${textProp} | ${searchText} |\n`;
     });
     
     response += "\n*Use `inspect` tool with any URI above for detailed information*";

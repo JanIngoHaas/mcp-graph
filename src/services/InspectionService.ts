@@ -444,7 +444,7 @@ async function formatPropertyInspectionResult(
       const hierarchy = inspection.domainHierarchies.get(uri) || "";
       const escapedLabel = label.replace(/\|/g, "\\|");
       const escapedHierarchy = hierarchy.replace(/\|/g, "\\|");
-      result += `| \`${uri}\` | ${escapedLabel} | ${escapedHierarchy} |\n`;
+      result += `| ${uri} | ${escapedLabel} | ${escapedHierarchy} |\n`;
     }
     result += "\n";
   }
@@ -458,7 +458,7 @@ async function formatPropertyInspectionResult(
       const hierarchy = inspection.rangeHierarchies.get(uri) || "";
       const escapedLabel = label.replace(/\|/g, "\\|");
       const escapedHierarchy = hierarchy.replace(/\|/g, "\\|");
-      result += `| \`${uri}\` | ${escapedLabel} | ${escapedHierarchy} |\n`;
+      result += `| ${uri} | ${escapedLabel} | ${escapedHierarchy} |\n`;
     }
     result += "\n";
   }
@@ -559,7 +559,7 @@ async function formatOntologyInspectionResult(
     result += "|-----|-------|\n";
     for (const [uri, label] of filteredDomains) {
       const escapedLabel = label.replace(/\|/g, "\\|");
-      result += `| \`${uri}\` | ${escapedLabel} |\n`;
+      result += `| ${uri} | ${escapedLabel} |\n`;
     }
     result += "\n";
   }
@@ -570,7 +570,7 @@ async function formatOntologyInspectionResult(
     result += "|-----|-------|\n";
     for (const [uri, label] of filteredRanges) {
       const escapedLabel = label.replace(/\|/g, "\\|");
-      result += `| \`${uri}\` | ${escapedLabel} |\n`;
+      result += `| ${uri} | ${escapedLabel} |\n`;
     }
     result += "\n";
   }
@@ -662,8 +662,7 @@ async function formatDataConnections(
   }
 
   if (filteredOutgoing.length > 0) {
-    result += `## Properties (${filteredOutgoing.length} of ${outgoingData.size})\n`;
-    result += `*<${uri}> --[Property]--> [Sample Values]*\n\n`;
+    result += `## Outgoing Data Connections (${filteredOutgoing.length} of ${outgoingData.size})\n`;
     result += "| Property | Sample Values |\n";
     result += "|----------|---------------|\n";
     
@@ -676,14 +675,13 @@ async function formatDataConnections(
           (values.length > MAX_VALUES_TO_SHOW ? `, ... (+${values.length - MAX_VALUES_TO_SHOW} more)` : "");
       
       const escapedSamples = sampleValues.replace(/\|/g, "\\|").replace(/\n/g, " ");
-      result += `| \`${propertyUri}\` | ${escapedSamples} |\n`;
+      result += `| ${propertyUri} | ${escapedSamples} |\n`;
     }
     result += "\n";
   }
 
   if (filteredIncoming.length > 0) {
-    result += `## References (${filteredIncoming.length} of ${incomingData.size})\n`;
-    result += `*[Sample Entities] --[Property]--> <${uri}>*\n\n`;
+    result += `## Incoming Data Connections (${filteredIncoming.length} of ${incomingData.size})\n`;
     result += "| Property | Sample Entities |\n";
     result += "|----------|----------------|\n";
     
