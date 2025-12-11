@@ -2,6 +2,7 @@ import { QueryService } from "./QueryService";
 import { ResourceResult } from "../types";
 import { getReadableName } from "../utils/formatting.js";
 import { QueryParserService, FallbackBackend, QLeverBackend } from "../utils/queryParser.js";
+import { PrefixManager } from "../utils/PrefixManager.js";
 
 /**
  * Checks if a label appears to be a URI (starts with http/https)
@@ -104,8 +105,8 @@ export class SearchService {
     });
     
     response += "\n*Use `inspect` tool with any URI above for detailed information*";
-    
+    const prefixManager = PrefixManager.getInstance();
+    response = prefixManager.compressTextWithPrefixes(response);
     return response;
   }
-
 }

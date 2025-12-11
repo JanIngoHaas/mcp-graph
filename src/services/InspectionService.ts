@@ -3,6 +3,7 @@ import { getReadableName } from "../utils/formatting.js";
 import { QueryService } from "./QueryService.js";
 import { EmbeddingHelper } from "./EmbeddingHelper.js";
 import { cos_sim } from "@huggingface/transformers";
+import { PrefixManager } from "../utils/PrefixManager.js";
 
 /**
  * Checks if a label appears to be a URI (starts with http/https)
@@ -702,6 +703,8 @@ async function formatDataConnections(
   result += `## Summary\n`;
   result += `Showing: ${filteredOutgoing.length} of ${outgoingData.size} properties, ${filteredIncoming.length} of ${incomingData.size} references (filtered by: "${relevantToQuery}")\n`;
 
+  const prefixManager = PrefixManager.getInstance();
+  result = prefixManager.compressTextWithPrefixes(result);
   return result;
 }
 

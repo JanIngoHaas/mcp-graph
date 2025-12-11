@@ -1,5 +1,6 @@
 import { QueryEngine } from "@comunica/query-sparql";
 import { QueryStringContext } from "@comunica/types";
+import { PrefixManager } from "../utils/PrefixManager.js";
 
 function addDistinctToQuery(query: string): string {
   // Use regex to find SELECT statements and add DISTINCT if not already present
@@ -8,29 +9,43 @@ function addDistinctToQuery(query: string): string {
 
 export class QueryService {
   private queryEngine: QueryEngine;
+  private sparqlToken?: string;
 
-  constructor() {
+  constructor(sparqlToken?: string) {
     this.queryEngine = new QueryEngine();
+    this.sparqlToken = sparqlToken;
   }
 
   async executeQueryRaw(query: string, sources: Array<string>): Promise<any[]> {
     // Rate limiting: 100ms delay before each query
+    const prefixManager = PrefixManager.getInstance();
     await new Promise((resolve) => setTimeout(resolve, 100));
+    // Enrich query with PREFIXes
+    
+    let modifiedQuery = addDistinctToQuery(query);
+    modifiedQuery = prefixManager.addPrefixesToQuery(modifiedQuery);
 
-    const modifiedQuery = addDistinctToQuery(query);
-
-    const bindingsStream = await this.queryEngine.queryBindings(modifiedQuery, {
+    const context: QueryStringContext = {
       sources,
-    } as QueryStringContext);
+    };
+
+    // Add authentication headers if token is provided
+    if (this.sparqlToken) {
+      context.httpHeaders = {
+        'Authorization': `Bearer ${this.sparqlToken}`,
+      };
+    }
+
+    const bindingsStream = await this.queryEngine.queryBindings(modifiedQuery, context);
 
     const bindings = await bindingsStream.toArray();
     const results = bindings.map((binding) => {
       const result: any = {};
       for (const [variable, term] of binding) {
         result[variable.value] = {
-          value: term.value,
+          value: term.value, 
           type: term.termType,
-          language: (term as any).language || undefined,
+          language: ((term as any).language as string) || undefined,
         };
       }
       return result;
@@ -50,6 +65,7 @@ export class QueryService {
 
   async executeQuery(query: string, sources: Array<string>, language: string, maxRows: number = 100): Promise<string> {
     const results = await this.executeQueryRaw(query, sources);
+    const prefixManager = PrefixManager.getInstance();
 
     let languageFilteredResults = results;
     if (language !== "all") {
@@ -89,6 +105,7 @@ export class QueryService {
       resultTable += `\n\n**Note**: Results were limited to ${maxRows} rows. Total matching results: ${languageFilteredResults.length}. To see more results, increase the \`maxRows\` parameter.`;
     }
 
+    resultTable = prefixManager.compressTextWithPrefixes(resultTable);
     return resultTable;
   }
 }

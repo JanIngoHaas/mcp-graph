@@ -9,6 +9,7 @@ import os from "os";
 async function main() {
   // Get configuration from environment variables only
   const sparqlEndpoint: string | undefined = process.env.SPARQL_ENDPOINT;
+  const sparqlToken: string | undefined = process.env.SPARQL_TOKEN;
   const logFile: string | undefined = process.env.LOG_FILE;
   const endpointEngine: string = process.env.ENDPOINT_ENGINE || "fallback";
 
@@ -35,7 +36,7 @@ async function main() {
 
   Logger.info("Starting MCP Graph server...", { sparqlEndpoint, endpointEngine });
 
-  const server = await createServer(sparqlEndpoint, endpointEngine.toLowerCase());
+  const server = await createServer(sparqlEndpoint, endpointEngine.toLowerCase(), sparqlToken);
   
   
   const transport = new StdioServerTransport();

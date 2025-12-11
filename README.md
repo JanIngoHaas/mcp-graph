@@ -53,6 +53,7 @@ Add this to your MCP client configuration:
 **Environment Variables:**
 
 - `SPARQL_ENDPOINT`: SPARQL endpoint URL for RDF data exploration; Required
+- `SPARQL_TOKEN`: Authentication token for SPARQL endpoint (optional, sent as Bearer token in Authorization header)
 - `ENDPOINT_ENGINE`: The SPARQL Engine powering the endpoint; possible values: 'qlever', 'fallback' (default)
 - `LOG_FILE`: Path to log file (optional, logs to stderr if not set)
 - `LOG_LEVEL`: Logging level (optional, default: `info`)

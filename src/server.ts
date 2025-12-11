@@ -3,12 +3,14 @@ import { z } from "zod";
 import { QueryService } from "./services/QueryService.js";
 import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
+import { PathExplorationService } from "./services/PathExplorationService.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
 import { QueryParserService, FallbackBackend, QLeverBackend } from "./utils/queryParser.js";
 
 export async function createServer(
   sparqlEndpoint: string,
-  endpointEngine: string = "fallback"
+  endpointEngine: string = "fallback",
+  sparqlToken?: string
 ): Promise<McpServer> {
   const server = new McpServer(
     {
@@ -27,10 +29,11 @@ Process (you may deviate if deemed necessary - be flexible!):
   );
 
   // Initialize services and helpers
-  const queryService = new QueryService();
+  const queryService = new QueryService(sparqlToken);
   const embeddingService = new EmbeddingHelper();
   const searchService = new SearchService(queryService, endpointEngine);
   const inspectionService = new InspectionService(queryService, sparqlEndpoint, embeddingService);
+  const pathExplorationService = new PathExplorationService(queryService, embeddingService);
 
   server.registerTool(
     "query",

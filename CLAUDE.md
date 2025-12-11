@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Linux/Mac:**
 ```bash
 export SPARQL_ENDPOINT="https://dbpedia.org/sparql"
+export SPARQL_TOKEN="your_token_here"  # optional
 export ENDPOINT_ENGINE="fallback"  # or "qlever"
 npx tsc && node dist/index.js
 ```
@@ -17,6 +18,7 @@ npx tsc && node dist/index.js
 **Windows PowerShell:**
 ```powershell
 $env:SPARQL_ENDPOINT="https://dbpedia.org/sparql"
+$env:SPARQL_TOKEN="your_token_here"  # optional
 $env:ENDPOINT_ENGINE="fallback"  # or "qlever"
 npx tsc; node dist/index.js
 ```
@@ -24,6 +26,7 @@ npx tsc; node dist/index.js
 ## Environment Variables
 
 - `SPARQL_ENDPOINT` - SPARQL endpoint URL for RDF data exploration
+- `SPARQL_TOKEN` - Authentication token for SPARQL endpoint (optional, sent as Bearer token in Authorization header)
 - `ENDPOINT_ENGINE` - Engine type for SPARQL endpoint (`qlever` or `fallback`, default: `fallback`)
 - `LOG_FILE` - Path to log file (optional, logs to stderr if not set)
 - `LOG_LEVEL` - Logging level (optional, default: `info`)
