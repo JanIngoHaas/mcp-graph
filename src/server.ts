@@ -18,12 +18,13 @@ export async function createServer(
       version: "0.1.0",
     },
     {
-      instructions: `This is a service to connect you to an RDF-based Knowledge Graph. You can use it to query and explore the graph.
-Process (you may deviate if deemed necessary - be flexible!):
-1) Identify key terms in the user's query.
-2) Use search to find relevant classes, properties, and entities.
-3) Use inspect to get detailed information about any URI found in step 2. This automatically detects whether it's a class/property (shows domain/range) or an entity (shows data connections). IMPORTANT: You MUST provide a relevantToQuery parameter - use the user's original search query or a related semantic query. Results are limited to 15 by default - increase maxResults (e.g., to 1000) if you need to see more.
-4) Use query to execute a SPARQL query against the Knowledge Graph. You can use the results from search and inspect to construct your query.
+      instructions: `This service connects you to an RDF-based Knowledge Graph for exploration and querying.
+
+Usage Information:
+1) Use 'search' to find relevant entities, classes, and properties for your topic
+2) Use 'inspect' on interesting URIs to understand their relationships and properties
+3) Use 'path' to discover connections between specific entities
+4) Use 'query' to execute precise SPARQL queries based on your discoveries
 `,
     }
   );
@@ -33,7 +34,7 @@ Process (you may deviate if deemed necessary - be flexible!):
   const embeddingService = new EmbeddingHelper();
   const searchService = new SearchService(queryService, endpointEngine);
   const inspectionService = new InspectionService(queryService, sparqlEndpoint, embeddingService);
-  const pathExplorationService = new PathExplorationService(queryService, embeddingService);
+  const pathExplorationService = new PathExplorationService(queryService, sparqlEndpoint, embeddingService);
 
   server.registerTool(
     "query",
@@ -129,6 +130,50 @@ Process (you may deviate if deemed necessary - be flexible!):
           },
         ],
       };
+    }
+  );
+
+  server.registerTool(
+    "path",
+    {
+      description:
+        'Discover relationship paths between two specific entities in the knowledge graph. This tool reveals how entities are connected through properties and intermediate nodes, helping you understand relationships and build more targeted queries.',
+      inputSchema: {
+        uriSource: z.string().describe("The URI of the source entity"),
+        uriTarget: z.string().describe("The URI of the target entity"),
+        relevantToQuery: z.string().describe("Query to filter and rank results by semantic relevance. Results will be ordered by similarity to this query."),
+        maxResults: z.number().optional().default(25).describe("Maximum number of paths to return (default: 25)"),
+        maxDepth: z.number().optional().default(5).describe("Maximum path-depth to explore (default: 5)"),
+      }
+    },
+    async (request: {
+      uriSource: string;
+      uriTarget: string
+      relevantToQuery: string;
+      maxResults?: number;
+      maxDepth?: number
+    }) => {
+      const { uriSource, uriTarget, relevantToQuery, maxResults = 25, maxDepth = 5 } = request;
+      try {
+        const result = await pathExplorationService.explore(
+          uriSource,
+          uriTarget,
+          relevantToQuery,
+          maxResults,
+          maxDepth
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result,
+            },
+          ],
+        };
+      } catch (error) {
+        throw new Error(`Failed to explore paths for ${uriSource} and ${uriTarget}: ${error}`);
+      }
     }
   );
 

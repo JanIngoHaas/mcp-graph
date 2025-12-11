@@ -59,7 +59,7 @@ export class PrefixManager {
   /**
    * Compress a URI using known prefixes
    */
-  public compressUri(uri: string): string {
+  private compressUri(uri: string): string {
     for (const [prefix, namespace] of Object.entries(this.prefixMap)) {
       if (uri.startsWith(namespace)) {
         return uri.replace(namespace, `${prefix}:`);
@@ -69,27 +69,9 @@ export class PrefixManager {
   }
 
   /**
-   * Expand a prefixed URI back to full URI
-   */
-  public expandUri(prefixedUri: string): string {
-    const colonIndex = prefixedUri.indexOf(':');
-    if (colonIndex === -1) return prefixedUri;
-
-    const prefix = prefixedUri.substring(0, colonIndex);
-    const localPart = prefixedUri.substring(colonIndex + 1);
-    
-    const namespace = this.prefixMap[prefix];
-    if (namespace) {
-      return namespace + localPart;
-    }
-    
-    return prefixedUri; // Return original if prefix not found
-  }
-
-  /**
    * Get all PREFIX declarations for SPARQL queries
    */
-  public getPrefixDeclarations(): string {
+  private getPrefixDeclarations(): string {
     return Object.entries(this.prefixMap)
       .map(([prefix, uri]) => `PREFIX ${prefix}: <${uri}>`)
       .join('\n');
@@ -101,21 +83,6 @@ export class PrefixManager {
   public addPrefixesToQuery(query: string): string {
     const prefixDeclarations = this.getPrefixDeclarations();
     return `${prefixDeclarations}\n\n${query}`;
-  }
-
-  /**
-   * Get compressed URI for display - model must provide valid URIs
-   */
-  public getReadableUri(uri: string): string {
-    // Try to compress using known prefixes
-    const compressed = this.compressUri(uri);
-    if (compressed !== uri) {
-      return compressed;
-    }
-    
-    // If no prefix matches, return the URI as-is
-    // The model needs to work with actual URIs, not invented labels
-    return uri;
   }
 
   /**
@@ -149,10 +116,4 @@ export class PrefixManager {
     return `${prefixDeclarations}\n\n${result}`;
   }
 
-  /**
-   * Get all registered prefixes (for debugging)
-   */
-  public getAllPrefixes(): PrefixMapping {
-    return { ...this.prefixMap };
-  }
 }

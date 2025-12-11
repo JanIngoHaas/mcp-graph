@@ -24,11 +24,13 @@ interface TreeNode {
 export class PathExplorationService {
   private queryService: QueryService;
   private embeddingHelper: EmbeddingHelper;
+  private sparqlEndpoint: string;
   private static readonly DEPTH_BIAS_FACTOR = 0.15;
 
-  constructor(queryService: QueryService, embeddingHelper: EmbeddingHelper) {
+  constructor(queryService: QueryService, sparqlEndpoint: string, embeddingHelper: EmbeddingHelper) {
     this.queryService = queryService;
     this.embeddingHelper = embeddingHelper;
+    this.sparqlEndpoint = sparqlEndpoint;
   }
 
   private generatePathQuery(sourceUri: string, targetUri: string, maxDepth: number = 5): string {
@@ -40,7 +42,7 @@ export class PathExplorationService {
     for (let depth = 1; depth <= maxDepth; depth++) {
       let selectVars = [];
       let whereClause = "";
-      //let filters = [];
+        let filters = [];
       
       for (let i = 1; i <= depth; i++) {
         selectVars.push(`?p${i}`);
@@ -118,7 +120,6 @@ ORDER BY ?depth`;
   async explore(
     sourceUri: string, 
     targetUri: string, 
-    sparqlEndpoint: string,
     relevantToQuery: string,
     topN: number = 20,
     maxDepth: number = 5
@@ -126,7 +127,7 @@ ORDER BY ?depth`;
     const query = this.generatePathQuery(sourceUri, targetUri, maxDepth);
     
     try {
-      const results = await this.queryService.executeQueryRaw(query, [sparqlEndpoint]);
+      const results = await this.queryService.executeQueryRaw(query, [this.sparqlEndpoint]);
       
       if (results.length === 0) {
         return `No paths found between:\n- ${sourceUri}\n- ${targetUri}`;
