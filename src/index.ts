@@ -12,6 +12,7 @@ async function main() {
   const sparqlToken: string | undefined = process.env.SPARQL_TOKEN;
   const logFile: string | undefined = process.env.LOG_FILE;
   const endpointEngine: string = process.env.ENDPOINT_ENGINE || "fallback";
+  const publicUrl: string | undefined = process.env.PUBLIC_URL;
 
   // Validate sparqlEndpoint is provided
   if (!sparqlEndpoint) {
@@ -34,11 +35,11 @@ async function main() {
     enableConsole: process.env.NODE_ENV === "development",
   });
 
-  Logger.info("Starting MCP Graph server...", { sparqlEndpoint, endpointEngine });
+  Logger.info("Starting MCP Graph server...", { sparqlEndpoint, endpointEngine, publicUrl });
 
-  const server = await createServer(sparqlEndpoint, endpointEngine.toLowerCase(), sparqlToken);
-  
-  
+  const server = await createServer(sparqlEndpoint, endpointEngine.toLowerCase(), sparqlToken, publicUrl);
+
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   Logger.info("Server started successfully.");

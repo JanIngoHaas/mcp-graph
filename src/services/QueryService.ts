@@ -21,7 +21,7 @@ export class QueryService {
     const prefixManager = PrefixManager.getInstance();
     await new Promise((resolve) => setTimeout(resolve, 100));
     // Enrich query with PREFIXes
-    
+
     let modifiedQuery = addDistinctToQuery(query);
     modifiedQuery = prefixManager.addPrefixesToQuery(modifiedQuery);
 
@@ -43,7 +43,7 @@ export class QueryService {
       const result: any = {};
       for (const [variable, term] of binding) {
         result[variable.value] = {
-          value: term.value, 
+          value: term.value,
           type: term.termType,
           language: ((term as any).language as string) || undefined,
         };
@@ -61,6 +61,33 @@ export class QueryService {
       seen.add(key);
       return true;
     });
+  }
+
+  async executeConstructQuery(query: string, sources: Array<string>): Promise<any[]> {
+    const prefixManager = PrefixManager.getInstance();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    let modifiedQuery = prefixManager.addPrefixesToQuery(query);
+
+    const context: QueryStringContext = {
+      sources,
+    };
+
+    if (this.sparqlToken) {
+      context.httpHeaders = {
+        'Authorization': `Bearer ${this.sparqlToken}`,
+      };
+    }
+
+    const quadStream = await this.queryEngine.queryQuads(modifiedQuery, context);
+    const quads = await quadStream.toArray();
+
+    return quads.map(quad => ({
+      subject: quad.subject.value,
+      predicate: quad.predicate.value,
+      object: quad.object.value,
+      graph: quad.graph.value
+    }));
   }
 
   async executeQuery(query: string, sources: Array<string>, language: string, maxRows: number = 100): Promise<string> {

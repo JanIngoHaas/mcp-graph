@@ -42,8 +42,8 @@ export class PathExplorationService {
     for (let depth = 1; depth <= maxDepth; depth++) {
       let selectVars = [];
       let whereClause = "";
-        let filters = [];
-      
+      let filters = [];
+
       for (let i = 1; i <= depth; i++) {
         selectVars.push(`?p${i}`);
         if (i < depth) {
@@ -51,16 +51,16 @@ export class PathExplorationService {
         }
       }
       selectVars.push(`(${depth} AS ?depth)`);
-      
+
       if (depth === 1) {
         whereClause = `${source} ?p1 ${target} .`;
       } else {
         let clauses = [`${source} ?p1 ?n1 .`];
         for (let i = 2; i <= depth; i++) {
-          clauses.push(`?n${i-1} ?p${i} ?n${i} .`);
+          clauses.push(`?n${i - 1} ?p${i} ?n${i} .`);
         }
         whereClause = clauses.join('\n        ');
-        
+
         // Remove backward edges:
         /*
           dbr:Steve_Jobs
@@ -93,22 +93,22 @@ export class PathExplorationService {
         //   }
         // }
       }
-      
+
       let union = `    {
       SELECT ${selectVars.join(' ')} WHERE {
         ${sourceBound} ${targetBound} ${whereClause}`;
-      
+
       // if (filters.length > 0) {
       //   union += `\n        ${filters.join('\n        ')}`;
       // }
-      
+
       union += `
       }
     }`;
       unions.push(union);
     }
-    
-    return `SELECT DISTINCT ${Array.from({length: maxDepth}, (_, i) => `?p${i+1} ?n${i+1}`).join(' ')} ?depth
+
+    return `SELECT DISTINCT ${Array.from({ length: maxDepth }, (_, i) => `?p${i + 1} ?n${i + 1}`).join(' ')} ?depth
 WHERE {
 ${sourceBound}
 ${targetBound}
@@ -118,34 +118,34 @@ ORDER BY ?depth`;
   }
 
   async explore(
-    sourceUri: string, 
-    targetUri: string, 
+    sourceUri: string,
+    targetUri: string,
     relevantToQuery: string,
     topN: number = 20,
     maxDepth: number = 5
   ): Promise<string> {
     const query = this.generatePathQuery(sourceUri, targetUri, maxDepth);
-    
+
     try {
       const results = await this.queryService.executeQueryRaw(query, [this.sparqlEndpoint]);
-      
+
       if (results.length === 0) {
         return `No paths found between:\n- ${sourceUri}\n- ${targetUri}`;
       }
-      
+
       // Parse results into paths with step structure
       const paths: Path[] = results.map(result => {
         const depth = parseInt(result.depth?.value || "0");
         const steps: Step[] = [];
-        
+
         let currentNode = sourceUri;
-        
+
         for (let i = 1; i <= depth; i++) {
           const property = result[`p${i}`]?.value;
-          const nextNode = i < depth 
-            ? result[`n${i}`]?.value 
+          const nextNode = i < depth
+            ? result[`n${i}`]?.value
             : targetUri;
-            
+
           if (property && nextNode) {
             steps.push({
               from: currentNode,
@@ -155,17 +155,17 @@ ORDER BY ?depth`;
             currentNode = nextNode;
           }
         }
-        
+
         return { depth, steps };
       }).filter(path => path.steps.length > 0);
 
       // Score and filter paths by semantic relevance
       const scoredPaths = await this.scoreAndFilterPaths(paths, relevantToQuery, topN);
-      
+
       // Build and render tree from top N paths
       const tree = this.buildTree(scoredPaths, sourceUri, targetUri);
       return this.renderTree(tree, sourceUri, targetUri, scoredPaths.length, paths.length);
-      
+
     } catch (error) {
       console.error(`Error finding paths:`, error);
       return `Error finding paths: ${error}`;
@@ -202,7 +202,7 @@ ORDER BY ?depth`;
     // Apply softmax to get probabilities
     const expScores = scoredPaths.map(p => Math.exp(p.score!));
     const sumExp = expScores.reduce((sum, exp) => sum + exp, 0);
-    
+
     const probabilityPaths = scoredPaths.map((path, i) => ({
       ...path,
       score: expScores[i] / sumExp
@@ -217,7 +217,7 @@ ORDER BY ?depth`;
   private async calculatePathRelevance(path: Path, queryEmbedding: Float32Array): Promise<number> {
     // Collect all step texts for this path
     const stepTexts = path.steps.map(step => `${step.from} ${step.property} ${step.to}`);
-    
+
     // Get embeddings for all steps in one batch
     const stepEmbeddings: Float32Array[] = [];
     await this.embeddingHelper.embed(stepTexts, "none", async (_, embeddings) => {
@@ -229,7 +229,7 @@ ORDER BY ?depth`;
     }
 
     // Calculate similarity for each step
-    const stepScores = stepEmbeddings.map(stepEmb => 
+    const stepScores = stepEmbeddings.map(stepEmb =>
       cos_sim(Array.from(stepEmb), Array.from(queryEmbedding))
     );
 
@@ -242,13 +242,13 @@ ORDER BY ?depth`;
       children: new Map(),
       isTarget: sourceUri === targetUri
     };
-    
+
     // Sort paths by depth (closest first)
     const sortedPaths = paths.sort((a, b) => a.depth - b.depth);
-    
+
     for (const path of sortedPaths) {
       let currentNode = root;
-      
+
       for (const step of path.steps) {
         if (!currentNode.children.has(step.property)) {
           currentNode.children.set(step.property, {
@@ -260,7 +260,7 @@ ORDER BY ?depth`;
         currentNode = currentNode.children.get(step.property)!;
       }
     }
-    
+
     return root;
   }
 
@@ -268,50 +268,55 @@ ORDER BY ?depth`;
     let output = `# Path Tree: ${sourceUri} → ${targetUri}\n\n`;
     output += `Showing top ${selectedPaths} most relevant paths (from ${totalPaths} found):\n\n`;
     output += `\`\`\`\n`;
-    output += this.renderTreeNode(root, "", true, targetUri);
+    output += this.renderTreeNode(root, "", targetUri);
     output += `\`\`\`\n`;
-    
+
     // Compress URIs and add prefix declarations
     const prefixManager = PrefixManager.getInstance();
     return prefixManager.compressTextWithPrefixes(output);
   }
 
-  private renderTreeNode(node: TreeNode, prefix: string, isLast: boolean, targetUri: string): string {
+  private renderTreeNode(node: TreeNode, prefix: string, targetUri: string): string {
     let result = "";
-    
+
+    // Root node rendering
     if (prefix === "") {
-      // Root node
       result += `${node.uri}\n`;
-    } else {
-      // Child node
-      const connector = isLast ? "└── " : "├── ";
-      const marker = node.isTarget ? " ★" : "";
-      result += `${prefix}${connector}${node.uri}${marker}\n`;
     }
-    
-    // Sort children by minimum depth to target (closest first)
+
+    // Calculate depth-based sorting for children one step ahead
     const children = Array.from(node.children.entries()).sort((a, b) => {
       const depthA = this.getMinDepthToTarget(a[1], targetUri);
       const depthB = this.getMinDepthToTarget(b[1], targetUri);
       return depthA - depthB;
     });
-    
+
     for (let i = 0; i < children.length; i++) {
       const [property, childNode] = children[i];
       const isLastChild = i === children.length - 1;
-      const childPrefix = prefix + (isLast ? "    " : "│   ");
-      
-      result += `${childPrefix}${isLastChild ? "└── " : "├── "}[${property}]\n`;
-      const nodePrefix = childPrefix + (isLastChild ? "    " : "│   ");
-      result += this.renderTreeNode(childNode, nodePrefix, true, targetUri);
+      const marker = childNode.isTarget ? " ★" : "";
+
+      const connector = isLastChild ? "└── " : "├── ";
+      const verticalConnector = isLastChild ? "    " : "│   ";
+
+      // Line 1: The property (the edge)
+      result += `${prefix}${connector}[${property}]\n`;
+
+      // Line 2: The node reached by that property
+      // We indent this slightly under the property to show it's the result of the hop
+      result += `${prefix}${verticalConnector} ↳ ${childNode.uri}${marker}\n`;
+
+      // Recurse: align the next branches under the current node
+      const nextPrefix = prefix + verticalConnector + "   ";
+      result += this.renderTreeNode(childNode, nextPrefix, targetUri);
     }
-    
+
     return result;
   }
 
   private getMinDepthToTarget(node: TreeNode, targetUri: string): number {
     if (node.isTarget) return 0;
-    
+
     let minDepth = Infinity;
     for (const [_, child] of node.children) {
       const childDepth = this.getMinDepthToTarget(child, targetUri);
@@ -319,7 +324,7 @@ ORDER BY ?depth`;
         minDepth = childDepth;
       }
     }
-    
+
     return minDepth === Infinity ? Infinity : minDepth + 1;
   }
 }

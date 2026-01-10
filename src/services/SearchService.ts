@@ -7,17 +7,17 @@ import { PrefixManager } from "../utils/PrefixManager.js";
 /**
  * Checks if a label appears to be a URI (starts with http/https)
  */
-function isUriLabel(label: string): boolean {
-  return label.startsWith("http://") || label.startsWith("https://");
-}
+// function isUriLabel(label: string): boolean {
+//   return label.startsWith("http://") || label.startsWith("https://");
+// }
 
-/**
- * Gets a properly formatted label, using getReadableName for URI labels
- */
-function getFormattedLabel(label: string): string {
-  if (isUriLabel(label)) return getReadableName(label);
-  return label;
-}
+// /**
+//  * Gets a properly formatted label, using getReadableName for URI labels
+//  */
+// function getFormattedLabel(label: string): string {
+//   if (isUriLabel(label)) return getReadableName(label);
+//   return label;
+// }
 
 export class SearchService {
   private queryService: QueryService;
@@ -25,7 +25,7 @@ export class SearchService {
 
   constructor(queryService: QueryService, searchBackend?: string) {
     this.queryService = queryService;
-    
+
     // Default to Fallback (universal), allow override to QLever
     let backend;
     switch (searchBackend) {
@@ -36,7 +36,7 @@ export class SearchService {
         backend = new FallbackBackend();
         break;
     }
-    
+
     this.queryParser = new QueryParserService(backend);
   }
 
@@ -95,15 +95,15 @@ export class SearchService {
     results.forEach((result: ResourceResult) => {
       const uri = result.uri.replace(/\|/g, "\\|");
       const textProp = (result.textProp || "").replace(/\|/g, "\\|");
-      const searchText = result.searchText 
-        ? (result.searchText.length > TEXT_LENTH_LIMIT 
-           ? result.searchText.substring(0, 255) + "..." 
-           : result.searchText).replace(/\|/g, "\\|").replace(/\n/g, " ")
+      const searchText = result.searchText
+        ? (result.searchText.length > TEXT_LENTH_LIMIT
+          ? result.searchText.substring(0, 255) + "..."
+          : result.searchText).replace(/\|/g, "\\|").replace(/\n/g, " ")
         : "";
-      
+
       response += `| ${uri} | ${textProp} | ${searchText} |\n`;
     });
-    
+
     response += "\n*Use `inspect` tool with any URI above for detailed information*";
     const prefixManager = PrefixManager.getInstance();
     response = prefixManager.compressTextWithPrefixes(response);

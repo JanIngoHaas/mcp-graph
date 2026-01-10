@@ -1,17 +1,20 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { QueryService } from "./services/QueryService.js";
 import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
 import { PathExplorationService } from "./services/PathExplorationService.js";
+import { TripleService } from "./services/TripleService.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
-import { QueryParserService, FallbackBackend, QLeverBackend } from "./utils/queryParser.js";
 
 export async function createServer(
   sparqlEndpoint: string,
   endpointEngine: string = "fallback",
-  sparqlToken?: string
+  sparqlToken?: string,
+  publicUrl?: string
 ): Promise<McpServer> {
+  const resourceBase = publicUrl ? `${publicUrl.replace(/\/$/, "")}/lookup` : "graph://lookup";
+
   const server = new McpServer(
     {
       name: "rdfGraphExplorer",
@@ -25,6 +28,8 @@ Usage Information:
 2) Use 'inspect' on interesting URIs to understand their relationships and properties
 3) Use 'path' to discover connections between specific entities
 4) Use 'query' to execute precise SPARQL queries based on your discoveries
+5) Use 'verify' to check facts and generate citation links
+CITATION RULE: Always verify facts before asserting them.
 `,
     }
   );
@@ -35,6 +40,7 @@ Usage Information:
   const searchService = new SearchService(queryService, endpointEngine);
   const inspectionService = new InspectionService(queryService, sparqlEndpoint, embeddingService);
   const pathExplorationService = new PathExplorationService(queryService, sparqlEndpoint, embeddingService);
+  const tripleService = new TripleService(queryService, sparqlEndpoint);
 
   server.registerTool(
     "query",
@@ -72,6 +78,54 @@ Usage Information:
           {
             type: "text",
             text: res,
+          },
+        ],
+      };
+    }
+  );
+
+  // Register the verify tool for easy triple verification with citation links
+  server.registerTool(
+    "verify",
+    {
+      description:
+        "Verify RDF triples and generate citation links. This tool searches for matching RDF triples in the knowledge graph and returns citation links. Use '_' as wildcard to discover relationships (up to 2 wildcards allowed).",
+      inputSchema: {
+        subject: z
+          .string()
+          .describe("The subject URI or '_' as wildcard"),
+        predicate: z
+          .string()
+          .describe("The predicate URI or '_' as wildcard"),
+        object: z
+          .string()
+          .describe("The object URI or '_' as wildcard"),
+        limit: z
+          .number()
+          .optional()
+          .default(50)
+          .describe("Maximum number of triples to return (default: 50)"),
+      },
+    },
+    async (request: { subject: string; predicate: string; object: string; limit?: number }) => {
+      const { subject, predicate, object, limit = 50 } = request;
+
+      const result = await tripleService.completeTriple(subject, predicate, object, limit);
+
+      // Generate citation link with URL-encoded parameters
+      const encodedSubject = encodeURIComponent(subject);
+      const encodedPredicate = encodeURIComponent(predicate);
+      const encodedObject = encodeURIComponent(object);
+      const citationLink = `${resourceBase}?subject=${encodedSubject}&predicate=${encodedPredicate}&object=${encodedObject}`;
+
+      // Append citation instruction to the result
+      const responseWithCitation = `${result}\n\n---\n**Citation**: To cite this information in your response, use: [Source](${citationLink})`;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: responseWithCitation,
           },
         ],
       };
@@ -236,6 +290,35 @@ Usage Information:
       } catch (error) {
         throw new Error(`Failed to inspect URI: ${error}`);
       }
+    }
+  );
+
+  const templateUrl = `${resourceBase}{?subject,predicate,object}`;
+
+  server.registerResource(
+    "graph",
+    new ResourceTemplate(templateUrl, { list: undefined }),
+    {
+      mimeType: "text/markdown",
+      title: "Knowledge Graph Triples",
+      description: "Dynamic resource to fetch RDF triples. Use query parameters 'subject', 'predicate', and 'object' with one wildcard '_'.",
+    },
+    async (uri, variables) => {
+      const url = new URL(uri.href);
+      const subject = url.searchParams.get("subject") || "_";
+      const predicate = url.searchParams.get("predicate") || "_";
+      const object = url.searchParams.get("object") || "_";
+
+      const result = await tripleService.completeTriple(subject, predicate, object);
+
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            text: result,
+          },
+        ],
+      };
     }
   );
 
