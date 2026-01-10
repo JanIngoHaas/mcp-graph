@@ -1,19 +1,23 @@
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { QueryService } from "./services/QueryService.js";
 import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
 import { PathExplorationService } from "./services/PathExplorationService.js";
 import { TripleService } from "./services/TripleService.js";
+import { formatQuadsToMarkdown, formatQuadsToTtl } from "./utils/formatting.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
+import { CitationDatabase } from "./utils/CitationDatabase.js";
 
 export async function createServer(
   sparqlEndpoint: string,
-  endpointEngine: string = "fallback",
-  sparqlToken?: string,
-  publicUrl?: string
+  endpointEngine: string,
+  sparqlToken: string | undefined,
+  publicUrl: string,
+  citationDb: CitationDatabase
 ): Promise<McpServer> {
-  const resourceBase = publicUrl ? `${publicUrl.replace(/\/$/, "")}/lookup` : "graph://lookup";
+  const baseUrl = publicUrl.replace(/\/$/, ""); // Just the trail!
+  const citationBase = `${baseUrl}/citation`;
 
   const server = new McpServer(
     {
@@ -28,8 +32,9 @@ Usage Information:
 2) Use 'inspect' on interesting URIs to understand their relationships and properties
 3) Use 'path' to discover connections between specific entities
 4) Use 'query' to execute precise SPARQL queries based on your discoveries
-5) Use 'verify' to check facts and generate citation links
-CITATION RULE: Always verify facts before asserting them.
+5) Use 'verify' to check facts (simple pattern matching)
+6) Use 'cite' to generate a verification link for the USER. This link reveals the same triples you verified with 'verify'.
+CITATION RULE: Always check facts first with 'verify', then cite them using 'cite' when making a claim.
 `,
     }
   );
@@ -84,12 +89,12 @@ CITATION RULE: Always verify facts before asserting them.
     }
   );
 
-  // Register the verify tool for easy triple verification with citation links
+  // Register the verify tool for simple pattern matching
   server.registerTool(
     "verify",
     {
       description:
-        "Verify RDF triples and generate citation links. This tool searches for matching RDF triples in the knowledge graph and returns citation links. Use '_' as wildcard to discover relationships (up to 2 wildcards allowed).",
+        "Verify RDF triples via pattern matching. Use '_' as wildcard to discover relationships (up to 2 wildcards allowed).",
       inputSchema: {
         subject: z
           .string()
@@ -109,23 +114,82 @@ CITATION RULE: Always verify facts before asserting them.
     },
     async (request: { subject: string; predicate: string; object: string; limit?: number }) => {
       const { subject, predicate, object, limit = 50 } = request;
-
       const result = await tripleService.completeTriple(subject, predicate, object, limit);
 
-      // Generate citation link with URL-encoded parameters
-      const encodedSubject = encodeURIComponent(subject);
-      const encodedPredicate = encodeURIComponent(predicate);
-      const encodedObject = encodeURIComponent(object);
-      const citationLink = `${resourceBase}?subject=${encodedSubject}&predicate=${encodedPredicate}&object=${encodedObject}`;
+      if (result.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "No matching triples found.",
+            },
+          ],
+        };
+      }
 
-      // Append citation instruction to the result
-      const responseWithCitation = `${result}\n\n---\n**Citation**: To cite this information in your response, use: [Source](${citationLink})`;
+      // Format as Markdown for the model
+      const md = formatQuadsToMarkdown(result);
 
       return {
         content: [
           {
             type: "text",
-            text: responseWithCitation,
+            text: md,
+          },
+        ],
+      };
+    }
+  );
+
+  // Register the cite tool for citation generation
+  server.registerTool(
+    "cite",
+    {
+      description:
+        "Generate a citation link for the user. This tool creates a link that allows the user to view the same RDF triples you verified. It validates the pattern but does NOT return the triple details again.",
+      inputSchema: {
+        subject: z
+          .string()
+          .describe("The subject URI or '_' as wildcard"),
+        predicate: z
+          .string()
+          .describe("The predicate URI or '_' as wildcard"),
+        object: z
+          .string()
+          .describe("The object URI or '_' as wildcard"),
+        limit: z
+          .number()
+          .optional()
+          .default(50)
+          .describe("Maximum number of triples to return (default: 50)"),
+      },
+    },
+    async (request: { subject: string; predicate: string; object: string; limit?: number }, extra: any) => {
+      const { subject, predicate, object, limit = 50 } = request;
+
+      const result = await tripleService.completeTriple(subject, predicate, object, limit);
+
+      if (result.length === 0) {
+        return {
+          content: [{ type: "text", text: "No matching triples found. Cannot generate citation." }]
+        };
+      }
+
+      const sessionId = extra?.sessionId;
+      if (!sessionId) {
+        return {
+          content: [{ type: "text", text: "Error: No session ID available for citation." }]
+        };
+      }
+
+      const citationId = citationDb.storeCitation(sessionId, result);
+      const citationLink = `${citationBase}/${citationId}`;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Citation link generated: [Source](${citationLink})\nThis link contains the triples matching the pattern. Use this to assert a claim. Do not try to read this link. It is for the USER only.`,
           },
         ],
       };
@@ -293,29 +357,37 @@ CITATION RULE: Always verify facts before asserting them.
     }
   );
 
-  const templateUrl = `${resourceBase}{?subject,predicate,object}`;
-
   server.registerResource(
-    "graph",
-    new ResourceTemplate(templateUrl, { list: undefined }),
+    "citation",
+    "citation://session",
     {
-      mimeType: "text/markdown",
-      title: "Knowledge Graph Triples",
-      description: "Dynamic resource to fetch RDF triples. Use query parameters 'subject', 'predicate', and 'object' with one wildcard '_'.",
+      mimeType: "application/json",
+      title: "Session Citations",
+      description: "Get all citations for the current session as a JSON list, including their raw TTL.",
     },
-    async (uri, variables) => {
-      const url = new URL(uri.href);
-      const subject = url.searchParams.get("subject") || "_";
-      const predicate = url.searchParams.get("predicate") || "_";
-      const object = url.searchParams.get("object") || "_";
+    async (uri, extra: any) => {
+      const sessionId = extra?.sessionId;
+      if (!sessionId) {
+        throw new Error("No session ID available for citation lookup.");
+      }
 
-      const result = await tripleService.completeTriple(subject, predicate, object);
+      const citations = citationDb.getCitationsForSession(sessionId);
+
+      // For the session list, we return a JSON array of citation objects
+      // including formatted TTL for each.
+      const responseData = await Promise.all(citations.map(async (c) => ({
+        id: c.id,
+        sessionId: c.sessionId,
+        ttl: await formatQuadsToTtl(c.quads),
+        createdAt: c.createdAt
+      })));
 
       return {
         contents: [
           {
             uri: uri.href,
-            text: result,
+            mimeType: "application/json",
+            text: JSON.stringify(responseData, null, 2),
           },
         ],
       };

@@ -91,7 +91,7 @@ export class PrefixManager {
   public compressTextWithPrefixes(text: string): string {
     let result = text;
     const usedPrefixes = new Set<string>();
-    
+
     // Replace all instances of namespace URIs with prefixes
     for (const [prefix, namespace] of Object.entries(this.prefixMap)) {
       if (result.includes(namespace)) {
@@ -102,18 +102,24 @@ export class PrefixManager {
         usedPrefixes.add(prefix);
       }
     }
-    
+
     // Generate prefix declarations only for used prefixes
     if (usedPrefixes.size === 0) {
       return result; // No prefixes used, return as-is
     }
-    
+
     const prefixDeclarations = Array.from(usedPrefixes)
       .sort() // Sort for consistent output
       .map(prefix => `PREFIX ${prefix}: <${this.prefixMap[prefix]}>`)
       .join('\n');
-      
+
     return `${prefixDeclarations}\n\n${result}`;
   }
 
+  /**
+   * Get the prefix map
+   */
+  public getPrefixMap(): PrefixMapping {
+    return { ...this.prefixMap };
+  }
 }

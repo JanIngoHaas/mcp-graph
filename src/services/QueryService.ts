@@ -1,6 +1,7 @@
 import { QueryEngine } from "@comunica/query-sparql";
 import { QueryStringContext } from "@comunica/types";
 import { PrefixManager } from "../utils/PrefixManager.js";
+import type { Quad } from "@rdfjs/types";
 
 function addDistinctToQuery(query: string): string {
   // Use regex to find SELECT statements and add DISTINCT if not already present
@@ -63,7 +64,7 @@ export class QueryService {
     });
   }
 
-  async executeConstructQuery(query: string, sources: Array<string>): Promise<any[]> {
+  async executeConstructQuery(query: string, sources: Array<string>): Promise<Quad[]> {
     const prefixManager = PrefixManager.getInstance();
     await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -80,14 +81,7 @@ export class QueryService {
     }
 
     const quadStream = await this.queryEngine.queryQuads(modifiedQuery, context);
-    const quads = await quadStream.toArray();
-
-    return quads.map(quad => ({
-      subject: quad.subject.value,
-      predicate: quad.predicate.value,
-      object: quad.object.value,
-      graph: quad.graph.value
-    }));
+    return await quadStream.toArray();
   }
 
   async executeQuery(query: string, sources: Array<string>, language: string, maxRows: number = 100): Promise<string> {

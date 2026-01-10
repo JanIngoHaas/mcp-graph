@@ -1,4 +1,3 @@
-import { getDisplayName } from "@modelcontextprotocol/sdk/shared/metadataUtils.js";
 import { getReadableName } from "../utils/formatting.js";
 import { QueryService } from "./QueryService.js";
 import { EmbeddingHelper } from "./EmbeddingHelper.js";
@@ -223,7 +222,7 @@ export class InspectionService {
     let label: string = getReadableName(uri, undefined);
     let description: string | undefined;
 
-  let query = `
+    let query = `
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
     PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
     PREFIX dc: <http://purl.org/dc/elements/1.1/>
@@ -253,37 +252,37 @@ export class InspectionService {
       }
     } LIMIT 100000`;
 
-  const bindings = await this.queryService.executeQueryRaw(query, [this.sparqlEndpoint]);
+    const bindings = await this.queryService.executeQueryRaw(query, [this.sparqlEndpoint]);
 
-  // Process results
-  for (const binding of bindings) {
-    if (binding.propRange) {
-      if (!ranges.has(binding.propRange.value)) {
-        ranges.set(
-          binding.propRange.value,
-          binding.propRangeLabel?.value
-            ? getFormattedLabel(binding.propRangeLabel.value)
-            : getReadableName(binding.propRange.value)
-        );
+    // Process results
+    for (const binding of bindings) {
+      if (binding.propRange) {
+        if (!ranges.has(binding.propRange.value)) {
+          ranges.set(
+            binding.propRange.value,
+            binding.propRangeLabel?.value
+              ? getFormattedLabel(binding.propRangeLabel.value)
+              : getReadableName(binding.propRange.value)
+          );
+        }
+      }
+      if (binding.propDomain) {
+        if (!domains.has(binding.propDomain.value)) {
+          domains.set(
+            binding.propDomain.value,
+            binding.propDomainLabel?.value
+              ? getFormattedLabel(binding.propDomainLabel.value)
+              : getReadableName(binding.propDomain.value)
+          );
+        }
+      }
+      if (binding.classLabel) {
+        label = getFormattedLabel(binding.classLabel.value);
+      }
+      if (binding.classDescr) {
+        description = binding.classDescr.value;
       }
     }
-    if (binding.propDomain) {
-      if (!domains.has(binding.propDomain.value)) {
-        domains.set(
-          binding.propDomain.value,
-          binding.propDomainLabel?.value
-            ? getFormattedLabel(binding.propDomainLabel.value)
-            : getReadableName(binding.propDomain.value)
-        );
-      }
-    }
-    if (binding.classLabel) {
-      label = getFormattedLabel(binding.classLabel.value);
-    }
-    if (binding.classDescr) {
-      description = binding.classDescr.value;
-    }
-  }
 
     return {
       ranges: ranges,
@@ -666,15 +665,15 @@ async function formatDataConnections(
     result += `## Outgoing Data Connections (${filteredOutgoing.length} of ${outgoingData.size})\n`;
     result += "| Property | Sample Values |\n";
     result += "|----------|---------------|\n";
-    
+
     for (const [propertyUri, values_] of filteredOutgoing) {
       const values = values_.map(v => v.value);
       const isExpanded = expandProperties.includes(propertyUri);
-      const sampleValues = isExpanded 
+      const sampleValues = isExpanded
         ? values.join(", ")
-        : values.slice(0, MAX_VALUES_TO_SHOW).join(", ") + 
-          (values.length > MAX_VALUES_TO_SHOW ? `, ... (+${values.length - MAX_VALUES_TO_SHOW} more)` : "");
-      
+        : values.slice(0, MAX_VALUES_TO_SHOW).join(", ") +
+        (values.length > MAX_VALUES_TO_SHOW ? `, ... (+${values.length - MAX_VALUES_TO_SHOW} more)` : "");
+
       const escapedSamples = sampleValues.replace(/\|/g, "\\|").replace(/\n/g, " ");
       result += `| ${propertyUri} | ${escapedSamples} |\n`;
     }
@@ -685,15 +684,15 @@ async function formatDataConnections(
     result += `## Incoming Data Connections (${filteredIncoming.length} of ${incomingData.size})\n`;
     result += "| Property | Sample Entities |\n";
     result += "|----------|----------------|\n";
-    
+
     for (const [propertyUri, values_] of filteredIncoming) {
       const values = values_.map(v => v.value);
       const isExpanded = expandProperties.includes(propertyUri);
-      const sampleValues = isExpanded 
+      const sampleValues = isExpanded
         ? values.join(", ")
-        : values.slice(0, MAX_VALUES_TO_SHOW).join(", ") + 
-          (values.length > MAX_VALUES_TO_SHOW ? `, ... (+${values.length - MAX_VALUES_TO_SHOW} more)` : "");
-      
+        : values.slice(0, MAX_VALUES_TO_SHOW).join(", ") +
+        (values.length > MAX_VALUES_TO_SHOW ? `, ... (+${values.length - MAX_VALUES_TO_SHOW} more)` : "");
+
       const escapedSamples = sampleValues.replace(/\|/g, "\\|").replace(/\n/g, " ");
       result += `| ${propertyUri} | ${escapedSamples} |\n`;
     }

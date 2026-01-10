@@ -5,6 +5,8 @@
     "@comunica/query-sparql": "4.4.1",
     "@huggingface/transformers": "3.7.6",
     "@modelcontextprotocol/sdk": "1.22.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
     "n3": "1.26.0",
     "peggy": "^5.0.6",
     "winston": "3.17.0",
@@ -12,6 +14,7 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "typescript": "5.8.3",
     "vitest": "^3.2.4"
   },

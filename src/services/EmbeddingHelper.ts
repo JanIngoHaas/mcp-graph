@@ -9,6 +9,11 @@ export class EmbeddingHelper {
       return; // Already initialized
     }
     Logger.info("Initializing embedding model (Qwen3-Embedding-0.6B)...");
+
+    // Track progress for multiple files
+    const fileProgress: { [file: string]: { line: number; lastUpdate: number } } = {};
+    let nextLine = 0;
+
     this._embedder = await pipeline(
       "feature-extraction",
       "onnx-community/Qwen3-Embedding-0.6B-ONNX",
@@ -16,8 +21,35 @@ export class EmbeddingHelper {
         device: "cpu",
         dtype: "fp32",
         progress_callback: (progress) => {
-          if (progress.status === "progress") {
-            Logger.debug(`Loading embedding model: ${progress.progress}`);
+          if (progress.status === "progress" && progress.file) {
+            const now = Date.now();
+
+            // Initialize file tracking if new
+            if (!fileProgress[progress.file]) {
+              fileProgress[progress.file] = { line: nextLine++, lastUpdate: 0 };
+              process.stdout.write("\n");
+            }
+
+            // Only update every 1s
+            if (now - fileProgress[progress.file].lastUpdate < 1000) {
+              return;
+            }
+
+            fileProgress[progress.file].lastUpdate = now;
+            const percent = Math.round((progress.loaded / progress.total) * 100);
+            const loadedGB = (progress.loaded / 1024 / 1024 / 1024).toFixed(2);
+            const totalGB = (progress.total / 1024 / 1024 / 1024).toFixed(2);
+
+            const linesToMove = Object.keys(fileProgress).length - fileProgress[progress.file].line - 1;
+            if (linesToMove > 0) {
+              process.stdout.write(`\x1b[${linesToMove}A`);
+            }
+            process.stdout.write(`\r${progress.file}: ${percent}% (${loadedGB}GB / ${totalGB}GB)    `);
+            if (linesToMove > 0) {
+              process.stdout.write(`\x1b[${linesToMove}B`);
+            }
+          } else if (progress.status === "done" && progress.file) {
+            Logger.info(`✓ Downloaded ${progress.file}`);
           }
         },
       }

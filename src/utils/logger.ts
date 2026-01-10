@@ -23,18 +23,15 @@ class Logger {
 
     const transports: winston.transport[] = [];
 
-    // If LOG_FILE is specified, log to file with daily rotation
+    // 1. File transports (if logFile is specified)
     if (logFile) {
       const logDir = path.dirname(logFile);
-      
-      // Ensure log directory exists
       if (!fs.existsSync(logDir)) {
         fs.mkdirSync(logDir, { recursive: true });
       }
 
       const baseFileName = path.basename(logFile, path.extname(logFile));
-      
-      // Main log file with daily rotation
+
       transports.push(
         new DailyRotateFile({
           filename: path.join(logDir, `${baseFileName}-%DATE%.log`),
@@ -50,7 +47,6 @@ class Logger {
         })
       );
 
-      // Error file transport
       transports.push(
         new DailyRotateFile({
           filename: path.join(logDir, `${baseFileName}-error-%DATE%.log`),
@@ -65,43 +61,37 @@ class Logger {
           )
         })
       );
-    } else {
-      // If no LOG_FILE specified, log to stderr
-      transports.push(
-        new winston.transports.Console({
-          stderrLevels: ['error', 'warn', 'info', 'debug', 'verbose'],
-          level: logLevel,
-          format: winston.format.combine(
-            winston.format.timestamp(),
-            winston.format.errors({ stack: true }),
-            winston.format.printf(({ timestamp, level, message, ...meta }) => {
-              let log = `${timestamp} [sparql-mcp] [${level}] ${message}`;
-              if (Object.keys(meta).length > 0) {
-                log += ` ${JSON.stringify(meta)}`;
-              }
-              return log;
-            })
-          )
-        })
-      );
     }
 
-    // Console transport (only for development/debugging)
-    if (enableConsole) {
+    // 2. Console transport
+    // Always log to console if enableConsole is true OR if no logFile is specified
+    if (enableConsole || !logFile) {
       transports.push(
         new winston.transports.Console({
           level: logLevel,
-          format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.timestamp({ format: 'HH:mm:ss' }),
-            winston.format.printf(({ timestamp, level, message, ...meta }) => {
-              let log = `${timestamp} [${level}]: ${message}`;
-              if (Object.keys(meta).length > 0) {
-                log += ` ${JSON.stringify(meta)}`;
-              }
-              return log;
-            })
-          )
+          format: enableConsole
+            ? winston.format.combine(
+              winston.format.colorize(),
+              winston.format.timestamp({ format: 'HH:mm:ss' }),
+              winston.format.printf(({ timestamp, level, message, ...meta }) => {
+                let log = `${timestamp} [${level}]: ${message}`;
+                if (Object.keys(meta).length > 0) {
+                  log += ` ${JSON.stringify(meta)}`;
+                }
+                return log;
+              })
+            )
+            : winston.format.combine(
+              winston.format.timestamp(),
+              winston.format.errors({ stack: true }),
+              winston.format.printf(({ timestamp, level, message, ...meta }) => {
+                let log = `${timestamp} [sparql-mcp] [${level}] ${message}`;
+                if (Object.keys(meta).length > 0) {
+                  log += ` ${JSON.stringify(meta)}`;
+                }
+                return log;
+              })
+            )
         })
       );
     }

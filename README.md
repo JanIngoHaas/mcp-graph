@@ -1,16 +1,19 @@
-# Knowledge Graph MCP
+# Knowledge Graph MCP Server
 
-A Model Context Protocol (MCP) server for intelligent exploration and querying of RDF knowledge graphs with semantic search capabilities.
+A Model Context Protocol (MCP) HTTP server for intelligent exploration and querying of RDF knowledge graphs with semantic search capabilities.
 
 ## Overview
 
-This server provides tools for exploring SPARQL endpoints and RDF data sources. It combines traditional SPARQL querying with semantic search using embeddings, allowing users (LLMs / agents) to discover and navigate complex knowledge graphs intuitively.
+This server provides tools for exploring SPARQL endpoints and RDF data sources via HTTP. It combines traditional SPARQL querying with semantic search using embeddings, allowing LLMs and agents to discover and navigate complex knowledge graphs intuitively.
 
 ## Key Features
 
+- **HTTP Streamable Transport**: MCP server accessible via HTTP with SSE support for real-time notifications
 - **SPARQL Query Execution**: Direct querying of RDF knowledge graphs via SPARQL endpoints
 - **Boolean Search**: Search for RDF entities using boolean query syntax
 - **URI Inspection**: Detailed exploration of RDF classes and properties with domain/range analysis
+- **Path Discovery**: Find relationship paths between entities
+- **Citation System**: Generate verifiable citation links for RDF triples
 
 ## MCP Tools
 
@@ -18,46 +21,87 @@ Once running, the server provides these tools to MCP clients:
 
 1. **`query`** - Execute SPARQL queries against the knowledge graph
 2. **`search`** - Search for RDF entities using boolean queries
-3. **`inspect`** - Inspection tool that automatically detects URI type and shows appropriate information (classes/properties show domain/range relationships, entities show data connections)
+3. **`inspect`** - Unified inspection tool that automatically detects URI type and shows appropriate information
+4. **`path`** - Discover relationship paths between two entities
+5. **`verify`** - Verify RDF triples via pattern matching (simple fact-checking)
+6. **`cite`** - Generate citation links for verified triples (for user reference)
 
 ## Installation
 
 ```bash
-npm i
-npm run build
-npm run init
-npm install -g
+npm install
+npm run init    # Initialize embedding model
+npm run build   # Compile TypeScript
 ```
 
-Now, you can use the following config file in your favourite MCP Client
+## Running the Server
+
+```bash
+export SPARQL_ENDPOINT="https://dbpedia.org/sparql"
+export ENDPOINT_ENGINE="fallback"
+npm run start
+```
+
+The server will start on **http://localhost:3000/mcp** by default.
+
+## Environment Variables
+
+### Required
+- **`SPARQL_ENDPOINT`**: SPARQL endpoint URL for RDF data exploration
+
+### Optional
+- **`PUBLIC_URL`**: Public URL for the server (default: `http://localhost:3000`)
+  - Used for generating citation links
+  - Example: `https://your-domain.com`
+- **`MCP_PORT`**: HTTP server port (default: `3000`)
+- **`ENDPOINT_ENGINE`**: SPARQL engine type - `qlever` or `fallback` (default: `fallback`)
+- **`SPARQL_TOKEN`**: Authentication token for SPARQL endpoint (sent as Bearer token)
+- **`LOG_FILE`**: Path to log file (logs to stdout if not set)
+- **`LOG_LEVEL`**: Logging level - `debug`, `info`, `warn`, `error` (default: `info`)
+- **`EMBEDDING_BATCH_SIZE`**: Batch size for embedding processing (default: `32`)
+- **`CUSTOM_PREFIXES`**: Custom RDF URI prefixes (format: `prefix:<uri>,prefix2:<uri2>`)
+  - Example: `dblp:<https://dblp.org/rdf/schema#>,mydata:<http://example.com/data/>`
+
+## MCP Client Configuration
+
+To connect an MCP client to this server, configure it to use the HTTP transport:
 
 ```json
 {
   "mcpServers": {
     "kg-mcp": {
-      "command": "npx",
-      "args": ["kg-mcp"],
-      "env": {
-        "SPARQL_ENDPOINT": "https://sparql.dblp.org/sparql",
-        "ENDPOINT_ENGINE": "qlever"
-      }
+      "url": "http://localhost:3000/mcp",
+      "transport": "http"
     }
   }
 }
 ```
 
-## MCP Client Configuration
+**Note**: The exact configuration format depends on your MCP client. The server uses the [MCP Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports) protocol.
 
-Add this to your MCP client configuration:
+## Citation System
 
-**Environment Variables:**
+The `cite` tool generates unique, resolvable URLs for RDF triples:
 
-- `SPARQL_ENDPOINT`: SPARQL endpoint URL for RDF data exploration; Required
-- `SPARQL_TOKEN`: Authentication token for SPARQL endpoint (optional, sent as Bearer token in Authorization header)
-- `ENDPOINT_ENGINE`: The SPARQL Engine powering the endpoint; possible values: 'qlever', 'fallback' (default)
-- `LOG_FILE`: Path to log file (optional, logs to stderr if not set)
-- `LOG_LEVEL`: Logging level (optional, default: `info`)
-- `EMBEDDING_BATCH_SIZE`: Batch size for embedding processing (optional, default: 32)
+1. **Verify** facts using the `verify` tool
+2. **Cite** them using the `cite` tool to get a URL
+3. Users can click the citation link to view the raw RDF triples in Turtle format
+
+Citation URLs are session-scoped and use random UUIDs for privacy.
+
+## Architecture
+
+- **HTTP Server**: Express-based server with MCP Streamable HTTP transport
+- **Session Management**: Multiple concurrent client sessions supported
+- **SSE Resumability**: Server-Sent Events with automatic reconnection support
+- **Citation Database**: In-memory storage per server instance
+
+## Scripts
+
+- **`npm run build`** - Compile TypeScript to JavaScript
+- **`npm run start`** - Build and start the HTTP server
+- **`npm run test`** - Run tests
+- **`npm run init`** - Initialize (one-time setup - downloads embedding model, etc.,) 
 
 ## License
 
