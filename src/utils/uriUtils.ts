@@ -1,4 +1,4 @@
-import { PrefixManager } from "./PrefixManager";
+import { PrefixManager } from "../utils/PrefixManager.js";
 
 /**
  * Format a URI's local name into a human-readable label

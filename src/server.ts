@@ -236,7 +236,7 @@ When to use 'fact' vs 'query_builder':
     "query_builder",
     {
       description:
-        "Build and execute structured queries with relationship traversal. Use this tool to filter lists of entities.\n\nKey Features:\n- Path Traversal: Filter by properties of related entities using dot notation (e.g., 'authoredBy.label' checks the label of the author).\n- Multiple Filters: Combine multiple conditions.\n\nExample: \"Find publications by 'Martin Gaedke' published after 2020\"\n{\n  \"type\": \"https://dblp.org/rdf/schema#Publication\",\n  \"filters\": [\n    { \"path\": \"authoredBy.label\", \"operator\": \"contains\", \"value\": \"Martin Gaedke\" },\n    { \"path\": \"year\", \"operator\": \">\", \"value\": \"\\\"2020\\\"^^xsd:gYear\" }\n  ],\n  \"project\": [\"label\", \"year\", \"authoredBy.label\"]\n}",
+        "Build and execute structured queries with relationship traversal. Use this tool to filter lists of entities.\n\nKey Features:\n- Path Traversal: Filter by properties of related entities using dot notation (e.g., 'authoredBy.label' checks the label of the author).\n- Multiple Filters: Combine multiple conditions.\n- JSON Escaping: String values with double quotes use standard JSON escaping (\\\"value\\\").\n\nExample: \"Find publications by 'Martin Gaedke' published after 2020\"\n{\n  \"type\": \"https://dblp.org/rdf/schema#Publication\",\n  \"filters\": [\n    { \"path\": \"authoredBy.label\", \"operator\": \"contains\", \"value\": \"Martin Gaedke\" },\n    { \"path\": \"year\", \"operator\": \">\", \"value\": \"\\\"2020\\\"^^xsd:gYear\" }\n  ],\n  \"project\": [\"label\", \"year\", \"authoredBy.label\"]\n}",
       inputSchema: QueryBuilderInputSchema,
     },
     async (request: QueryBuilderRequest) => {

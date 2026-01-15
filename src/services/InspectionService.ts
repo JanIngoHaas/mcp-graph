@@ -475,6 +475,9 @@ async function formatPropertyInspectionResult(
 
   result += `## Showing: ${domainCount} of ${totalDomains} domains, ${rangeCount} of ${totalRanges} ranges (filtered by: "${relevantToQuery}")\n`;
 
+  let prefixManager = PrefixManager.getInstance();
+  result = prefixManager.compressTextWithPrefixes(result, false);
+
   return result;
 }
 
@@ -581,6 +584,9 @@ async function formatOntologyInspectionResult(
   const totalRanges = inspection.ranges.size;
 
   result += `## Showing: ${domainCount} of ${totalDomains} outgoing connections, ${rangeCount} of ${totalRanges} incoming connections (filtered by: "${relevantToQuery}")\n`;
+
+  let prefixManager = PrefixManager.getInstance();
+  result = prefixManager.compressTextWithPrefixes(result, true);
 
   return result;
 }
