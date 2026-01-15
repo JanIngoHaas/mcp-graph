@@ -1,6 +1,7 @@
 import { QueryService } from "./QueryService.js";
 import { PrefixManager } from "../utils/PrefixManager.js";
 import { Quad } from "@rdfjs/types";
+import { formatSparqlValue } from "../utils/uriUtils.js";
 
 export class TripleService {
     constructor(private queryService: QueryService, private sparqlEndpoint: string) { }
@@ -20,16 +21,11 @@ export class TripleService {
         const formatValueInput = (val: string, variable: string) => {
             if (val === "_") return variable;
 
-            // Strict URI Validation
-            if (val.startsWith("http://") || val.startsWith("https://")) {
-                return `<${val}>`;
+            try {
+                return formatSparqlValue(val);
+            } catch (e) {
+                throw new Error(`Invalid Input for ${variable}: '${val}'. You must provide a valid URI (starting with http) or a Prefixed Name (e.g., dbr:Einstein). Plain literals are not allowed as input criteria.`);
             }
-            if (val.includes(":")) {
-                // Assume it's a prefixed name (e.g., dbr:Thing)
-                return val;
-            }
-
-            throw new Error(`Invalid Input for ${variable}: '${val}'. You must provide a valid URI (starting with http) or a Prefixed Name (e.g., dbr:Einstein). Plain literals are not allowed as input criteria.`);
         };
 
         const s = formatValueInput(subject, "?s");

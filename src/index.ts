@@ -198,7 +198,7 @@ async function main() {
                     citation.result.quads,
                     citationId,
                     {
-                        title: "Collection Query Results",
+                        title: "Query Results",
                         description: citation.description
                     }
                 );

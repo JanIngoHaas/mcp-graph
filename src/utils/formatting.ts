@@ -1,93 +1,8 @@
 import { Quad } from "@rdfjs/types";
 import { PrefixManager } from "./PrefixManager.js";
 import { Writer } from "n3";
-
-/**
- * Gets a readable name for a URI, preferring the provided label over the formatted identifier
- * @param uri - The URI to get a name for
- * @param label - Optional label to use instead of the formatted URI
- * @returns A human-readable name
- */
-export function getReadableName(uri: string, label?: string): string {
-  if (label) return label;
-  return formatLocalName(uri); // Use formatLocalName for better formatting (Title Case with spaces)
-}
-
-/**
- * Format a URI's local name into a human-readable label
- * e.g., "molarMass" -> "Molar Mass", "ChemicalSubstance" -> "Chemical Substance"
- */
-export function formatLocalName(uri: string): string {
-  const localName = uri.split(/[#/]/).pop() || uri;
-
-  // Insert spaces before capital letters and between camelCase
-  let formatted = localName.replace(/([a-z])([A-Z])/g, '$1 $2');
-
-  // Insert spaces before numbers
-  formatted = formatted.replace(/([a-zA-Z])(\d)/g, '$1 $2');
-
-  // Replace underscores and hyphens with spaces
-  formatted = formatted.replace(/[_-]/g, ' ');
-
-  // Capitalize first letter of each word
-  formatted = formatted.split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ');
-
-  return formatted;
-}
-
-/**
- * Resolve a URI to a human-readable label by querying for rdfs:label
- * Falls back to formatting the local name if no label is found
- * @param uri - The URI to resolve
- * @param queryService - QueryService instance for executing SPARQL queries
- * @param sparqlEndpoint - The SPARQL endpoint to query
- * @returns A human-readable label
- */
-export async function resolveLabel(
-  uri: string,
-  queryService: any,
-  sparqlEndpoint: string
-): Promise<string> {
-  // Try to get rdfs:label from the graph
-  const query = `
-    SELECT ?label WHERE {
-      <${uri}> <http://www.w3.org/2000/01/rdf-schema#label> ?label .
-    } LIMIT 1
-  `;
-
-  try {
-    const results = await queryService.executeQueryRaw(query, [sparqlEndpoint]);
-    if (results.length > 0 && results[0].label) {
-      return results[0].label.value;
-    }
-  } catch (error) {
-    // Fall back to extracting from URI
-  }
-
-  // Extract local name and format it
-  return formatLocalName(uri);
-}
-
-/**
- * Format a value for use in SPARQL queries, handling both URIs and prefixed names
- * This matches the logic used in TripleService.completeTriple
- * @param value - The value to format (URI or prefixed name)
- * @returns Formatted value for SPARQL query
- */
-export function formatSparqlValue(value: string): string {
-  // If it's already a full URI, wrap in angle brackets
-  if (value.startsWith('http://') || value.startsWith('https://')) {
-    return `<${value}>`;
-  }
-  // If it contains a colon, assume it's a prefixed name (e.g., hypmol:ChemicalSubstance)
-  if (value.includes(':')) {
-    return value;
-  }
-  // Otherwise, throw an error - we need either a full URI or prefixed name
-  throw new Error(`Invalid SPARQL value: '${value}'. Must be a full URI (starting with http://) or a prefixed name (e.g., hypmol:ChemicalSubstance)`);
-}
+import { marked } from "marked";
+import { formatLocalName, getReadableName, formatSparqlValue, resolveLabel, enrichTextWithLinks } from "./uriUtils.js";
 
 /**
  * Escapes HTML special characters
@@ -124,22 +39,105 @@ export function renderTermHTML(term: any): string {
 /**
  * Generates a Markdown table from Quads
  */
-export function formatQuadsToMarkdown(quads: Quad[]): string {
+export function formatQuadsToMarkdown(quads: Quad[], compressed: boolean): string {
   if (quads.length === 0) return "No triples found.";
 
   const prefixManager = PrefixManager.getInstance();
-  let md = `## Found ${quads.length} triples\n\n`;
-  md += "| Subject | Predicate | Object |\n";
-  md += "|---------|-----------|--------|\n";
 
-  quads.forEach((quad) => {
-    const escapedS = quad.subject.value.replace(/\|/g, "\\|");
-    const escapedP = quad.predicate.value.replace(/\|/g, "\\|");
-    const escapedO = quad.object.value.replace(/\|/g, "\\|");
-    md += `| ${escapedS} | ${escapedP} | ${escapedO} |\n`;
+  // 1. Organize data
+  const entityData = new Map<string, Map<string, Set<string>>>();
+  const entityTypes = new Map<string, Set<string>>();
+
+  quads.forEach(quad => {
+    const s = quad.subject.value;
+    const p = quad.predicate.value;
+    const o = quad.object.value;
+
+    // Store Entity Properties
+    if (!entityData.has(s)) entityData.set(s, new Map());
+    const props = entityData.get(s)!;
+    if (!props.has(p)) props.set(p, new Set());
+    // Escape pipes for Markdown table cells
+    props.get(p)!.add(o.replace(/\|/g, '\\|'));
+
+    // Store Types
+    if (p === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') {
+      if (!entityTypes.has(s)) entityTypes.set(s, new Set());
+      entityTypes.get(s)!.add(o);
+    }
   });
 
-  return prefixManager.compressTextWithPrefixes(md);
+  // 2. Group subjects by Type
+  const typeGroups = new Map<string, Set<string>>(); // Type -> Set<Subject>
+  const uncategorized = new Set<string>();
+
+  for (const s of entityData.keys()) {
+    const types = entityTypes.get(s);
+    if (types && types.size > 0) {
+      types.forEach(t => {
+        if (!typeGroups.has(t)) typeGroups.set(t, new Set());
+        typeGroups.get(t)!.add(s);
+      });
+    } else {
+      uncategorized.add(s);
+    }
+  }
+
+  // 3. Build Markdown
+  let md = `found ${quads.length} triples\n\n`;
+
+  const generateTable = (typeName: string, subjects: Set<string>) => {
+    // Collect all predicates for these subjects to define columns
+    const predicates = new Set<string>();
+    subjects.forEach(s => {
+      const props = entityData.get(s)!;
+      for (const p of props.keys()) {
+        predicates.add(p);
+      }
+    });
+
+    // Sort predicates for consistent column order
+    const sortedPredicates = Array.from(predicates).sort();
+
+    // Header
+    let table = `<details><summary>Type: <a href="${typeName}">${formatLocalName(typeName)}</a></summary>\n\n`;
+    table += `| Entity | ${sortedPredicates.map(p => formatLocalName(p)).join(' | ')} |\n`; // Format headers nicely
+    table += `|---|${sortedPredicates.map(() => '---').join('|')}|\n`;
+
+    // Rows
+    subjects.forEach(s => {
+      let row = `| ${s} |`; // Subject URI
+
+      for (const p of sortedPredicates) {
+        const props = entityData.get(s)!;
+        const values = props.get(p);
+        const cellContent = values ? Array.from(values).join(', ') : '';
+        row += ` ${cellContent} |`;
+      }
+      table += row + '\n';
+    });
+    table += '\n';
+    table += '</details>\n\n';
+    return table;
+  };
+
+  // Iterate groups (sort by type name for consistency)
+  const sortedTypes = Array.from(typeGroups.keys()).sort();
+  for (const typeUri of sortedTypes) {
+    md += generateTable(typeUri, typeGroups.get(typeUri)!);
+  }
+
+  if (uncategorized.size > 0) {
+    md += generateTable("Uncategorized", uncategorized);
+  }
+
+  if (compressed) {
+    // Model view: use prefixes to save tokens
+    return prefixManager.compressTextWithPrefixes(md, true);
+  } else {
+    // User view: use beautiful [Label](Link) formatting
+    return enrichTextWithLinks(md);
+  }
 }
 
 /**
@@ -257,19 +255,16 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
   const graphData = quadsToGraphData(quads);
   const graphDataJson = JSON.stringify(graphData);
 
-  // Generate rows for the table
-  const rows = quads.map(quad => `
-    <tr>
-      <td>${renderTermHTML(quad.subject)}</td>
-      <td>${renderTermHTML(quad.predicate)}</td>
-      <td>${renderTermHTML(quad.object)}</td>
-    </tr>`).join('');
+  // Generate Markdown and render to HTML
+  const markdown = formatQuadsToMarkdown(quads, false);
+  const markdownHtml = await marked.parse(markdown);
 
   let descriptionHtml = '';
   if (options?.description) {
+    const descriptionRendered = await marked.parse(options.description);
     descriptionHtml = `
     <div class="description">
-        <strong>Description:</strong> ${escapeHTML(options.description)}
+        ${descriptionRendered}
     </div>`;
   }
 
@@ -318,9 +313,9 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
         .description { 
             background: var(--primary-light); 
             padding: 15px; 
-            border-left: 4px solid var(--primary); 
+            border: 4px solid var(--primary); 
             margin-bottom: 20px; 
-            border-radius: 0 8px 8px 0;
+            border-radius: 4px;
         }
         
         .meta { 
@@ -586,12 +581,12 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
     ${descriptionHtml}
     
     <div class="tabs">
-        <button class="tab-btn active" data-tab="graph">📊 Graph View</button>
-        <button class="tab-btn" data-tab="table">📋 Table View</button>
+        <button class="tab-btn active" data-tab="table">📋 Table View</button>
+        <button class="tab-btn" data-tab="graph">📊 Graph View</button>
         <button class="tab-btn" data-tab="raw">📄 Raw TTL</button>
     </div>
     
-    <div id="graph" class="tab-content active">
+    <div id="graph" class="tab-content">
         <div class="graph-wrapper">
             <div class="graph-toolbar">
                 <select id="layout-select" class="graph-select" onchange="runLayout(this.value)">
@@ -625,15 +620,10 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
         </div>
     </div>
     
-    <div id="table" class="tab-content">
-        <table>
-          <thead>
-            <tr><th>Subject</th><th>Predicate</th><th>Object</th></tr>
-          </thead>
-          <tbody>
-            ${rows}
-          </tbody>
-        </table>
+    <div id="table" class="tab-content active">
+        <div class="markdown-table-container">
+            ${markdownHtml}
+        </div>
     </div>
     
     <div id="raw" class="tab-content">
@@ -651,7 +641,9 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
                 btn.classList.add('active');
                 document.getElementById(btn.dataset.tab).classList.add('active');
                 if (btn.dataset.tab === 'graph') {
+                    // Slight delay to allow display:block to take effect before resize
                     setTimeout(() => cy.resize(), 100);
+                    setTimeout(() => cy.fit(), 200);
                 }
             });
         });
@@ -943,4 +935,3 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
 </body>
 </html>`;
 }
-

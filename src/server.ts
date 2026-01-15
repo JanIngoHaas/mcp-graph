@@ -4,7 +4,7 @@ import { QueryService } from "./services/QueryService.js";
 import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
 import { TripleService } from "./services/TripleService.js";
-import { CollectionService } from "./services/CollectionService.js";
+import { QueryBuilderService } from "./services/QueryBuilderService.js";
 import { formatQuadsToMarkdown, formatQuadsToTtl } from "./utils/formatting.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
 import { CitationDatabase } from "./utils/CitationDatabase.js";
@@ -33,9 +33,12 @@ Usage Information:
 3) Use 'query' to execute precise SPARQL queries based on your discoveries
 4) Use 'fact' to check facts (simple pattern matching)
 5) Use 'cite_fact' to generate a verification link for the USER. This link reveals the same triples you verified with 'fact'.
-6) Use 'collection' to query filtered/mapped result sets from RDF collections
-7) Use 'cite_collection' to generate a citation link for collection queries
-CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_fact' when making a claim.
+6) Use 'query_builder' to build explainable queries more easily. This ensures your queries are safe and syntax-error-free.
+7) Use 'cite_query_builder' to generate a user-facing link for queries created by query_builder.
+CITATION RULE: Always check facts first with 'fact' OR 'query_builder' if you need to return lists of facts, then cite them using 'cite_fact' OR 'cite_query_builder' when making a claim.
+When to use 'fact' vs 'query_builder':
+- Use 'fact' when you have a single claim that only requires a few triples to verify.
+- Use 'query_builder' when you have a single claim that requires (dynamically retrieved) lists of facts to verify. 
 `,
     }
   );
@@ -46,7 +49,7 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
   const searchService = new SearchService(queryService, endpointEngine);
   const inspectionService = new InspectionService(queryService, sparqlEndpoint, embeddingService);
   const tripleService = new TripleService(queryService, sparqlEndpoint);
-  const collectionService = new CollectionService(queryService, sparqlEndpoint, searchService.getQueryParser());
+  const queryBuilderService = new QueryBuilderService(queryService, sparqlEndpoint, searchService.getQueryParser());
 
   server.registerTool(
     "query",
@@ -90,31 +93,70 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
     }
   );
 
+  // Shared schemas for tools
+  const FactInputSchema = {
+    subject: z
+      .string()
+      .describe("The subject URI or '_' as wildcard"),
+    predicate: z
+      .string()
+      .describe("The predicate URI or '_' as wildcard"),
+    object: z
+      .string()
+      .describe("The object URI or '_' as wildcard"),
+    limit: z
+      .number()
+      .optional()
+      .default(100)
+      .describe("Maximum number of triples to return (default: 100)"),
+  };
+
+  const QueryBuilderInputSchema = {
+    type: z
+      .string()
+      .describe("The RDF class URI to query (e.g., 'https://dblp.org/rdf/schema#Publication')"),
+    filters: z
+      .array(
+        z.object({
+          path: z
+            .string()
+            .describe("Property path, dot-separated for traversal (e.g., 'authoredBy.label'). Full URIs MUST be wrapped in <...>. Prefixed names and plain 'label' (shorthand for rdfs:label) are supported."),
+          operator: z
+            .enum(["=", "!=", ">", "<", ">=", "<=", "contains", "search"])
+            .describe("Comparison operator"),
+          value: z
+            .string()
+            .describe("The comparison value"),
+        })
+      )
+      .optional()
+      .describe("Filter conditions applied with AND logic"),
+    project: z
+      .array(z.string())
+      .describe("Property paths to return as columns (e.g., ['label', 'dblp:year']). Full URIs MUST be wrapped in <...>."),
+    limit: z
+      .number()
+      .default(100)
+      .describe("Maximum number of results to return (default: 100). Higher limits may cause performance issues or timeouts."),
+  };
+
+  type FactRequest = {
+    subject: string;
+    predicate: string;
+    object: string;
+    limit: number;
+  }
+
   // Register the verify tool for simple pattern matching
   server.registerTool(
     "fact",
     {
       description:
-        "Verify RDF triples via pattern matching. Use '_' as wildcard to discover relationships (up to 2 wildcards allowed).",
-      inputSchema: {
-        subject: z
-          .string()
-          .describe("The subject URI or '_' as wildcard"),
-        predicate: z
-          .string()
-          .describe("The predicate URI or '_' as wildcard"),
-        object: z
-          .string()
-          .describe("The object URI or '_' as wildcard"),
-        limit: z
-          .number()
-          .optional()
-          .default(50)
-          .describe("Maximum number of triples to return (default: 50)"),
-      },
+        "Verify specific relationships or find missing values. Use wildcard '_' to discover unknown parts of a triple. Use this tool for simple factoid questions or to verify a single or multiple simple claims precisely. Do not use this tool for complex queries that require complex multiple steps or joins.",
+      inputSchema: FactInputSchema,
     },
-    async (request: { subject: string; predicate: string; object: string; limit?: number }) => {
-      const { subject, predicate, object, limit = 50 } = request;
+    async (request: FactRequest) => {
+      const { subject, predicate, object, limit } = request;
       const result = await tripleService.completeTriple(subject, predicate, object, limit);
 
       if (result.length === 0) {
@@ -129,7 +171,7 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
       }
 
       // Format as Markdown for the model
-      const md = formatQuadsToMarkdown(result);
+      const md = formatQuadsToMarkdown(result, true);
 
       return {
         content: [
@@ -147,26 +189,11 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
     "cite_fact",
     {
       description:
-        "Generate a citation link for the user. This tool creates a link that allows the user to view the same RDF triples you verified. It validates the pattern but does NOT return the triple details again.",
-      inputSchema: {
-        subject: z
-          .string()
-          .describe("The subject URI or '_' as wildcard"),
-        predicate: z
-          .string()
-          .describe("The predicate URI or '_' as wildcard"),
-        object: z
-          .string()
-          .describe("The object URI or '_' as wildcard"),
-        limit: z
-          .number()
-          .optional()
-          .default(50)
-          .describe("Maximum number of triples to return (default: 50)"),
-      },
+        "Generate a citation link for a verified fact. Use this tool AFTER you have verified a triple with 'fact' to provide a reference link. It works exactly like 'fact' but returns a citation URL instead of the triples.",
+      inputSchema: FactInputSchema,
     },
-    async (request: { subject: string; predicate: string; object: string; limit?: number }, extra: any) => {
-      const { subject, predicate, object, limit = 50 } = request;
+    async (request: FactRequest, extra: any) => {
+      const { subject, predicate, object, limit } = request;
 
       const result = await tripleService.completeTriple(subject, predicate, object, limit);
 
@@ -197,52 +224,41 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
     }
   );
 
-  // Register the collection tool for Filter+Map queries
+  type QueryBuilderRequest = {
+    type: string
+    filters?: Array<{ path: string; operator: "=" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "search"; value: string }>;
+    project: string[];
+    limit: number;
+  }
+
+  // Register the query_builder tool for structured queries with path traversal
   server.registerTool(
-    "collection",
+    "query_builder",
     {
       description:
-        "Execute a Filter+Map query over RDF collections. Returns a result table for the agent to analyze.",
-      inputSchema: {
-        type: z
-          .string()
-          .describe("The RDF class to query (e.g., http://example.org/ChemicalSubstance)"),
-        filter: z
-          .object({
-            predicate: z.string().describe("The property URI to filter on"),
-            operator: z.string().describe("Comparison operator: '>', '<', '>=', '<=', '=', '!=', or 'search' (the 'search' operator uses the same fuzzy logic as the 'search' tool.)"),
-            value: z.string().describe("The threshold or comparison value"),
-          })
-          .optional()
-          .describe("Optional filter condition"),
-        map: z
-          .array(z.string())
-          .describe("Array of property URIs to return as columns in the result table"),
-        limit: z
-          .number()
-          .optional()
-          .default(1000)
-          .describe("Maximum number of results to return (default: 1000)"),
-      },
+        "Build and execute structured queries with relationship traversal. Use this tool to filter lists of entities.\n\nKey Features:\n- Path Traversal: Filter by properties of related entities using dot notation (e.g., 'authoredBy.label' checks the label of the author).\n- Multiple Filters: Combine multiple conditions.\n\nExample: \"Find publications by 'Martin Gaedke' published after 2020\"\n{\n  \"type\": \"https://dblp.org/rdf/schema#Publication\",\n  \"filters\": [\n    { \"path\": \"authoredBy.label\", \"operator\": \"contains\", \"value\": \"Martin Gaedke\" },\n    { \"path\": \"year\", \"operator\": \">\", \"value\": \"\\\"2020\\\"^^xsd:gYear\" }\n  ],\n  \"project\": [\"label\", \"year\", \"authoredBy.label\"]\n}",
+      inputSchema: QueryBuilderInputSchema,
     },
-    async (request: {
-      type: string;
-      filter?: { predicate: string; operator: string; value: string };
-      map: string[];
-      limit?: number;
-    }) => {
-      const { type, filter, map, limit = 1000 } = request;
+    async (request: QueryBuilderRequest) => {
+      const { type, filters, project, limit } = request;
 
       try {
-        const result = await collectionService.executeCollection({
+        // Transform filters to proper type
+        const typedFilters = filters?.map(f => ({
+          path: f.path,
+          operator: f.operator,
+          value: f.value,
+        }));
+
+        const result = await queryBuilderService.executeQuery({
           type,
-          filter,
-          map,
+          filters: typedFilters,
+          project,
           limit,
         });
 
-        // Format result as markdown table for the agent
-        const markdown = formatQuadsToMarkdown(result.quads);
+        // Format result as markdown table
+        const markdown = formatQuadsToMarkdown(result.quads, true);
 
         return {
           content: [
@@ -257,7 +273,7 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
           content: [
             {
               type: "text",
-              text: `Error executing collection query: ${error}`,
+              text: `Error executing query: ${error}`,
             },
           ],
         };
@@ -265,44 +281,19 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
     }
   );
 
-  // Register the cite_collection tool for citation generation
+  // Register the cite_query_builder tool for citation generation
   server.registerTool(
-    "cite_collection",
+    "cite_query_builder",
     {
       description:
-        "Generate a citation link for the user. This tool creates a link that allows the user to view the same collection query results. It executes the query but does NOT return the result details again.",
-      inputSchema: {
-        type: z
-          .string()
-          .describe("The RDF class to query (e.g., http://example.org/ChemicalSubstance)"),
-        filter: z
-          .object({
-            predicate: z.string().describe("The property URI to filter on"),
-            operator: z.string().describe("Comparison operator: '>', '<', '>=', '<=', '=', '!=', or 'search' (the 'search' operator uses the same fuzzy logic as the 'search' tool)"),
-            value: z.string().describe("The threshold or comparison value"),
-          })
-          .optional()
-          .describe("Optional filter condition"),
-        map: z
-          .array(z.string())
-          .describe("Array of property URIs to return as columns in the result table"),
-        limit: z
-          .number()
-          .optional()
-          .default(1000)
-          .describe("Maximum number of results to return (default: 1000)"),
-      },
+        "Generate a citation link for a query_builder query. Use this tool AFTER you have successfully executed a query with 'query_builder' to provide a reference link for the user. It works *exactly* like query_builder but returns a citation URL instead of data.",
+      inputSchema: QueryBuilderInputSchema,
     },
     async (
-      request: {
-        type: string;
-        filter?: { predicate: string; operator: string; value: string };
-        map: string[];
-        limit?: number;
-      },
+      request: QueryBuilderRequest,
       extra: any
     ) => {
-      const { type, filter, map, limit = 1000 } = request;
+      const { type, filters, project, limit } = request;
 
       const sessionId = extra?.sessionId;
       if (!sessionId) {
@@ -312,11 +303,17 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
       }
 
       try {
-        // Execute the collection query
-        const result = await collectionService.executeCollection({
+        // Transform filters to proper type
+        const typedFilters = filters?.map(f => ({
+          path: f.path,
+          operator: f.operator,
+          value: f.value,
+        }));
+
+        const result = await queryBuilderService.executeQuery({
           type,
-          filter,
-          map,
+          filters: typedFilters,
+          project,
           limit,
         });
 
@@ -325,29 +322,33 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
             content: [
               {
                 type: "text",
-                text: "No results found for the collection query. Cannot generate citation.",
+                text: "No results found for the query. Cannot generate citation.",
               },
             ],
           };
         }
 
         // Generate description
-        const description = await collectionService.generateDescription({
+        const description = await queryBuilderService.generateDescription({
           type,
-          filter,
-          map,
+          filters: typedFilters,
+          project,
           limit,
         });
 
         // Store citation
-        const citationId = citationDb.storeCollectionCitation(sessionId, result, description);
+        const citationId = citationDb.storeQueryBuilderCitation(
+          sessionId,
+          result,
+          description
+        );
         const citationLink = `${citationBase}/${citationId}`;
 
         return {
           content: [
             {
               type: "text",
-              text: `Citation link generated: [Source](${citationLink})\nThis link contains the collection query results. Use this to assert claims about the data. Do not try to read this link. It is for the USER only.`,
+              text: `Citation link generated: [Source](${citationLink})\nThis link contains the query results. Use this to assert claims about the data. Do not try to read this link. It is for the USER only.`,
             },
           ],
         };
@@ -356,7 +357,7 @@ CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_
           content: [
             {
               type: "text",
-              text: `Error generating collection citation: ${error}`,
+              text: `Error generating query citation: ${error}`,
             },
           ],
         };

@@ -1,23 +1,7 @@
 import { QueryService } from "./QueryService";
 import { ResourceResult } from "../types";
-import { getReadableName } from "../utils/formatting.js";
 import { QueryParserService, FallbackBackend, QLeverBackend } from "../utils/queryParser.js";
 import { PrefixManager } from "../utils/PrefixManager.js";
-
-/**
- * Checks if a label appears to be a URI (starts with http/https)
- */
-// function isUriLabel(label: string): boolean {
-//   return label.startsWith("http://") || label.startsWith("https://");
-// }
-
-// /**
-//  * Gets a properly formatted label, using getReadableName for URI labels
-//  */
-// function getFormattedLabel(label: string): string {
-//   if (isUriLabel(label)) return getReadableName(label);
-//   return label;
-// }
 
 export class SearchService {
   private queryService: QueryService;

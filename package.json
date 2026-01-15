@@ -7,6 +7,7 @@
     "@modelcontextprotocol/sdk": "1.22.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "marked": "^17.0.1",
     "n3": "1.26.0",
     "peggy": "^5.0.6",
     "winston": "3.17.0",
@@ -15,6 +16,7 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
+    "@types/marked": "^5.0.2",
     "typescript": "5.8.3",
     "vitest": "^3.2.4"
   },

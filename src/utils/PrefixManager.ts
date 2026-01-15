@@ -16,6 +16,7 @@ export class PrefixManager {
       'dbo': 'http://dbpedia.org/ontology/',
       'dbr': 'http://dbpedia.org/resource/',
       'dbp': 'http://dbpedia.org/property/',
+      'dblp': 'https://dblp.org/rdf/schema#',
       'rdfs': 'http://www.w3.org/2000/01/rdf-schema#',
       'rdf': 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
       'owl': 'http://www.w3.org/2002/07/owl#',
@@ -59,7 +60,7 @@ export class PrefixManager {
   /**
    * Compress a URI using known prefixes
    */
-  private compressUri(uri: string): string {
+  public compressUri(uri: string): string {
     for (const [prefix, namespace] of Object.entries(this.prefixMap)) {
       if (uri.startsWith(namespace)) {
         return uri.replace(namespace, `${prefix}:`);
@@ -88,7 +89,7 @@ export class PrefixManager {
   /**
    * Compress all URIs in text and prepend prefix declarations for used prefixes
    */
-  public compressTextWithPrefixes(text: string): string {
+  public compressTextWithPrefixes(text: string, isInsertIntoMarkdown: boolean = false): string {
     let result = text;
     const usedPrefixes = new Set<string>();
 
@@ -101,6 +102,10 @@ export class PrefixManager {
         result = result.replace(new RegExp(escapedNamespace, 'g'), `${prefix}:`);
         usedPrefixes.add(prefix);
       }
+    }
+
+    if (isInsertIntoMarkdown) {
+      result = result.replace(/#/g, '\\#');
     }
 
     // Generate prefix declarations only for used prefixes
@@ -122,4 +127,9 @@ export class PrefixManager {
   public getPrefixMap(): PrefixMapping {
     return { ...this.prefixMap };
   }
+
+  public getAvailablePrefixes(): string[] {
+    return Object.keys(this.prefixMap);
+  }
+
 }

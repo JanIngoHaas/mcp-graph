@@ -1,5 +1,5 @@
 import { Quad } from "@rdfjs/types";
-import { CollectionResult } from "../services/CollectionService.js";
+import { QueryBuilderResult } from "../services/QueryBuilderService";
 
 /**
  * Citation for RDF triples
@@ -13,13 +13,13 @@ export interface TripleCitation {
 }
 
 /**
- * Citation for collection queries
+ * Citation for queries
  */
-export interface CollectionCitation {
-    type: 'collection';
+export interface QueryBuilderCitation {
+    type: 'queryBuilder';
     id: string;
     sessionId: string;
-    result: CollectionResult;
+    result: QueryBuilderResult;
     description: string;
     createdAt: Date;
 }
@@ -27,7 +27,7 @@ export interface CollectionCitation {
 /**
  * Union type for all citation types
  */
-export type Citation = TripleCitation | CollectionCitation;
+export type Citation = TripleCitation | QueryBuilderCitation;
 
 export class CitationDatabase {
     private citations: Map<string, Citation> = new Map();
@@ -67,17 +67,17 @@ export class CitationDatabase {
     }
 
     /**
-     * Store a collection query result and generate a unique citation ID
+     * Store a query builder result and generate a unique citation ID
      * @param sessionId - The session ID that created this citation
-     * @param result - The collection query result
+     * @param result - The query builder result
      * @param description - Human-readable description of the query
      * @returns The unique citation ID
      */
-    storeCollectionCitation(sessionId: string, result: CollectionResult, description: string): string {
+    storeQueryBuilderCitation(sessionId: string, result: QueryBuilderResult, description: string): string {
         const citationId = crypto.randomUUID();
 
-        const citation: CollectionCitation = {
-            type: 'collection',
+        const citation: QueryBuilderCitation = {
+            type: 'queryBuilder',
             id: citationId,
             sessionId,
             result,
