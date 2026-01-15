@@ -3,8 +3,8 @@ import { z } from "zod";
 import { QueryService } from "./services/QueryService.js";
 import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
-import { PathExplorationService } from "./services/PathExplorationService.js";
 import { TripleService } from "./services/TripleService.js";
+import { CollectionService } from "./services/CollectionService.js";
 import { formatQuadsToMarkdown, formatQuadsToTtl } from "./utils/formatting.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
 import { CitationDatabase } from "./utils/CitationDatabase.js";
@@ -30,11 +30,12 @@ export async function createServer(
 Usage Information:
 1) Use 'search' to find relevant entities, classes, and properties for your topic
 2) Use 'inspect' on interesting URIs to understand their relationships and properties
-3) Use 'path' to discover connections between specific entities
-4) Use 'query' to execute precise SPARQL queries based on your discoveries
-5) Use 'verify' to check facts (simple pattern matching)
-6) Use 'cite' to generate a verification link for the USER. This link reveals the same triples you verified with 'verify'.
-CITATION RULE: Always check facts first with 'verify', then cite them using 'cite' when making a claim.
+3) Use 'query' to execute precise SPARQL queries based on your discoveries
+4) Use 'fact' to check facts (simple pattern matching)
+5) Use 'cite_fact' to generate a verification link for the USER. This link reveals the same triples you verified with 'fact'.
+6) Use 'collection' to query filtered/mapped result sets from RDF collections
+7) Use 'cite_collection' to generate a citation link for collection queries
+CITATION RULE: Always check facts first with 'fact', then cite them using 'cite_fact' when making a claim.
 `,
     }
   );
@@ -44,8 +45,8 @@ CITATION RULE: Always check facts first with 'verify', then cite them using 'cit
   const embeddingService = new EmbeddingHelper();
   const searchService = new SearchService(queryService, endpointEngine);
   const inspectionService = new InspectionService(queryService, sparqlEndpoint, embeddingService);
-  const pathExplorationService = new PathExplorationService(queryService, sparqlEndpoint, embeddingService);
   const tripleService = new TripleService(queryService, sparqlEndpoint);
+  const collectionService = new CollectionService(queryService, sparqlEndpoint, searchService.getQueryParser());
 
   server.registerTool(
     "query",
@@ -91,7 +92,7 @@ CITATION RULE: Always check facts first with 'verify', then cite them using 'cit
 
   // Register the verify tool for simple pattern matching
   server.registerTool(
-    "verify",
+    "fact",
     {
       description:
         "Verify RDF triples via pattern matching. Use '_' as wildcard to discover relationships (up to 2 wildcards allowed).",
@@ -143,7 +144,7 @@ CITATION RULE: Always check facts first with 'verify', then cite them using 'cit
 
   // Register the cite tool for citation generation
   server.registerTool(
-    "cite",
+    "cite_fact",
     {
       description:
         "Generate a citation link for the user. This tool creates a link that allows the user to view the same RDF triples you verified. It validates the pattern but does NOT return the triple details again.",
@@ -193,6 +194,173 @@ CITATION RULE: Always check facts first with 'verify', then cite them using 'cit
           },
         ],
       };
+    }
+  );
+
+  // Register the collection tool for Filter+Map queries
+  server.registerTool(
+    "collection",
+    {
+      description:
+        "Execute a Filter+Map query over RDF collections. Returns a result table for the agent to analyze.",
+      inputSchema: {
+        type: z
+          .string()
+          .describe("The RDF class to query (e.g., http://example.org/ChemicalSubstance)"),
+        filter: z
+          .object({
+            predicate: z.string().describe("The property URI to filter on"),
+            operator: z.string().describe("Comparison operator: '>', '<', '>=', '<=', '=', '!=', or 'search' (the 'search' operator uses the same fuzzy logic as the 'search' tool.)"),
+            value: z.string().describe("The threshold or comparison value"),
+          })
+          .optional()
+          .describe("Optional filter condition"),
+        map: z
+          .array(z.string())
+          .describe("Array of property URIs to return as columns in the result table"),
+        limit: z
+          .number()
+          .optional()
+          .default(1000)
+          .describe("Maximum number of results to return (default: 1000)"),
+      },
+    },
+    async (request: {
+      type: string;
+      filter?: { predicate: string; operator: string; value: string };
+      map: string[];
+      limit?: number;
+    }) => {
+      const { type, filter, map, limit = 1000 } = request;
+
+      try {
+        const result = await collectionService.executeCollection({
+          type,
+          filter,
+          map,
+          limit,
+        });
+
+        // Format result as markdown table for the agent
+        const markdown = formatQuadsToMarkdown(result.quads);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: markdown,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error executing collection query: ${error}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  // Register the cite_collection tool for citation generation
+  server.registerTool(
+    "cite_collection",
+    {
+      description:
+        "Generate a citation link for the user. This tool creates a link that allows the user to view the same collection query results. It executes the query but does NOT return the result details again.",
+      inputSchema: {
+        type: z
+          .string()
+          .describe("The RDF class to query (e.g., http://example.org/ChemicalSubstance)"),
+        filter: z
+          .object({
+            predicate: z.string().describe("The property URI to filter on"),
+            operator: z.string().describe("Comparison operator: '>', '<', '>=', '<=', '=', '!=', or 'search' (the 'search' operator uses the same fuzzy logic as the 'search' tool)"),
+            value: z.string().describe("The threshold or comparison value"),
+          })
+          .optional()
+          .describe("Optional filter condition"),
+        map: z
+          .array(z.string())
+          .describe("Array of property URIs to return as columns in the result table"),
+        limit: z
+          .number()
+          .optional()
+          .default(1000)
+          .describe("Maximum number of results to return (default: 1000)"),
+      },
+    },
+    async (
+      request: {
+        type: string;
+        filter?: { predicate: string; operator: string; value: string };
+        map: string[];
+        limit?: number;
+      },
+      extra: any
+    ) => {
+      const { type, filter, map, limit = 1000 } = request;
+
+      const sessionId = extra?.sessionId;
+      if (!sessionId) {
+        return {
+          content: [{ type: "text", text: "Error: No session ID available for citation." }],
+        };
+      }
+
+      try {
+        // Execute the collection query
+        const result = await collectionService.executeCollection({
+          type,
+          filter,
+          map,
+          limit,
+        });
+
+        if (result.count === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "No results found for the collection query. Cannot generate citation.",
+              },
+            ],
+          };
+        }
+
+        // Generate description
+        const description = await collectionService.generateDescription({
+          type,
+          filter,
+          map,
+          limit,
+        });
+
+        // Store citation
+        const citationId = citationDb.storeCollectionCitation(sessionId, result, description);
+        const citationLink = `${citationBase}/${citationId}`;
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Citation link generated: [Source](${citationLink})\nThis link contains the collection query results. Use this to assert claims about the data. Do not try to read this link. It is for the USER only.`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error generating collection citation: ${error}`,
+            },
+          ],
+        };
+      }
     }
   );
 
@@ -248,50 +416,6 @@ CITATION RULE: Always check facts first with 'verify', then cite them using 'cit
           },
         ],
       };
-    }
-  );
-
-  server.registerTool(
-    "path",
-    {
-      description:
-        'Discover relationship paths between two specific entities in the knowledge graph. This tool reveals how entities are connected through properties and intermediate nodes, helping you understand relationships and build more targeted queries.',
-      inputSchema: {
-        uriSource: z.string().describe("The URI of the source entity"),
-        uriTarget: z.string().describe("The URI of the target entity"),
-        relevantToQuery: z.string().describe("Query to filter and rank results by semantic relevance. Results will be ordered by similarity to this query."),
-        maxResults: z.number().optional().default(25).describe("Maximum number of paths to return (default: 25)"),
-        maxDepth: z.number().optional().default(5).describe("Maximum path-depth to explore (default: 5)"),
-      }
-    },
-    async (request: {
-      uriSource: string;
-      uriTarget: string
-      relevantToQuery: string;
-      maxResults?: number;
-      maxDepth?: number
-    }) => {
-      const { uriSource, uriTarget, relevantToQuery, maxResults = 25, maxDepth = 5 } = request;
-      try {
-        const result = await pathExplorationService.explore(
-          uriSource,
-          uriTarget,
-          relevantToQuery,
-          maxResults,
-          maxDepth
-        );
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: result,
-            },
-          ],
-        };
-      } catch (error) {
-        throw new Error(`Failed to explore paths for ${uriSource} and ${uriTarget}: ${error}`);
-      }
     }
   );
 
@@ -374,13 +498,28 @@ CITATION RULE: Always check facts first with 'verify', then cite them using 'cit
       const citations = citationDb.getCitationsForSession(sessionId);
 
       // For the session list, we return a JSON array of citation objects
-      // including formatted TTL for each.
-      const responseData = await Promise.all(citations.map(async (c) => ({
-        id: c.id,
-        sessionId: c.sessionId,
-        ttl: await formatQuadsToTtl(c.quads),
-        createdAt: c.createdAt
-      })));
+      // including formatted TTL for triple citations or result data for collections
+      const responseData = await Promise.all(citations.map(async (c) => {
+        if (c.type === 'triple') {
+          return {
+            type: 'triple',
+            id: c.id,
+            sessionId: c.sessionId,
+            ttl: await formatQuadsToTtl(c.quads),
+            createdAt: c.createdAt
+          };
+        } else {
+          return {
+            type: 'collection',
+            id: c.id,
+            sessionId: c.sessionId,
+            description: c.description,
+            count: c.result.count,
+            ttl: await formatQuadsToTtl(c.result.quads),
+            createdAt: c.createdAt
+          };
+        }
+      }));
 
       return {
         contents: [

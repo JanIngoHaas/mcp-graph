@@ -22,11 +22,11 @@ export interface WordsNode extends QueryNode {
 
 export interface BinaryOpNode extends QueryNode {
   type: 'or' | 'and';
-  left: ASTNode;
-  right: ASTNode;
+  left: QASTNode;
+  right: QASTNode;
 }
 
-export type ASTNode = TermNode | WordsNode | BinaryOpNode;
+export type QASTNode = TermNode | WordsNode | BinaryOpNode;
 
 export interface SearchBackend {
   generateWordsSearchPattern(words: string[], variable: string): string;
@@ -58,13 +58,13 @@ export class QLeverBackend implements SearchBackend {
         allWords.push(word);
       }
     });
-    
+
     // Use anchor pattern for QLever text search
-    const wordConditions = allWords.map(word => 
+    const wordConditions = allWords.map(word =>
       `?anchor textSearch:contains [ textSearch:word "${word.toLocaleLowerCase()}*" ]`
     ).join(' . ');
     const entityCondition = `?anchor textSearch:contains [ textSearch:entity ${variable} ]`;
-    
+
     return `SERVICE textSearch: { ${wordConditions} . ${entityCondition} }`;
   }
 }
@@ -89,7 +89,7 @@ export class QueryParserService {
     }
   }
 
-  public parse(query: string): ASTNode {
+  public parse(query: string): QASTNode {
     try {
       return this.parser.parse(query.trim());
     } catch (error) {
@@ -103,7 +103,7 @@ export class QueryParserService {
    * @param labelVariable Variable name for the label (default: "searchLabel")
    * @returns SPARQL pattern string
    */
-  public generateSparqlPattern(ast: ASTNode, labelVariable: string = "searchLabel"): string {
+  public generateSparqlPattern(ast: QASTNode, labelVariable: string = "searchLabel"): string {
     return this.nodeToSparql(ast, labelVariable);
   }
 
@@ -115,11 +115,11 @@ export class QueryParserService {
     return this.generateSparqlPattern(ast, labelVariable);
   }
 
-  private nodeToSparql(node: ASTNode, labelVariable: string): string {
+  private nodeToSparql(node: QASTNode, labelVariable: string): string {
     switch (node.type) {
-      case 'term': 
+      case 'term':
         return this.backend.generateWordsSearchPattern([node.value], labelVariable);
-        
+
       case 'words':
         return this.backend.generateWordsSearchPattern(node.words, labelVariable);
 
@@ -138,3 +138,41 @@ export class QueryParserService {
     }
   }
 }
+
+// I imagine somethign like this: 
+// TODO:
+// (search(rdfs:label, "Donald || Knuth") AND $ent.price > 50) => Basically a generalization of the current search function (we retain this of course...) 
+
+// export type EASTNode = AtomicNode | ComparisonNode | BinaryNode;
+
+// export interface AtomicNode {
+//   type: 'atomic';
+//   value: string;
+// }
+
+// export interface ComparisonNode {
+//   type: 'comparison';
+//   left: AtomicNode;
+//   right: AtomicNode;
+//   operator: 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte';
+// }
+
+// export interface BinaryNode {
+//   type: 'binary';
+//   left: EASTNode;
+//   right: EASTNode;
+//   operator: 'or' | 'and';
+// }
+
+// export class ExpressionParserService {
+//   private queryParserService: QueryParserService;
+
+//   constructor(queryParserService: QueryParserService) {
+//     this.queryParserService = queryParserService;
+//   }
+
+//   public parse(query: string): EASTNode {
+//     return this.queryParserService.parse(query);
+//   }
+
+// }

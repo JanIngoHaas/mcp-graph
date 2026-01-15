@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import "dotenv/config";
 import express, { type Request, type Response } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -192,7 +190,19 @@ async function main() {
         }
 
         try {
-            const html = await generateCitationHtml(citation.quads, citationId);
+            let html: string;
+            if (citation.type === 'triple') {
+                html = await generateCitationHtml(citation.quads, citationId);
+            } else {
+                html = await generateCitationHtml(
+                    citation.result.quads,
+                    citationId,
+                    {
+                        title: "Collection Query Results",
+                        description: citation.description
+                    }
+                );
+            }
             res.setHeader("Content-Type", "text/html; charset=utf-8");
             res.send(html);
         } catch (e) {

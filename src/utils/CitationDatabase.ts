@@ -1,18 +1,50 @@
 import { Quad } from "@rdfjs/types";
+import { CollectionResult } from "../services/CollectionService.js";
 
 /**
- * Citation database for storing RDF triples with unique citation IDs
+ * Citation for RDF triples
  */
-export interface Citation {
+export interface TripleCitation {
+    type: 'triple';
     id: string;
     sessionId: string;
     quads: Quad[];
     createdAt: Date;
 }
 
+/**
+ * Citation for collection queries
+ */
+export interface CollectionCitation {
+    type: 'collection';
+    id: string;
+    sessionId: string;
+    result: CollectionResult;
+    description: string;
+    createdAt: Date;
+}
+
+/**
+ * Union type for all citation types
+ */
+export type Citation = TripleCitation | CollectionCitation;
+
 export class CitationDatabase {
     private citations: Map<string, Citation> = new Map();
     private sessionCitations: Map<string, Set<string>> = new Map();
+
+
+    private storeGenericCitation(citation: Citation, citationId: `${string}-${string}-${string}-${string}-${string}`): string {
+        this.citations.set(citationId, citation);
+
+        // Track citation for session cleanup
+        if (!this.sessionCitations.has(citation.sessionId)) {
+            this.sessionCitations.set(citation.sessionId, new Set());
+        }
+        this.sessionCitations.get(citation.sessionId)!.add(citationId);
+
+        return citationId;
+    }
 
     /**
      * Store triples and generate a unique citation ID (random UUID)
@@ -23,20 +55,37 @@ export class CitationDatabase {
     storeCitation(sessionId: string, quads: Quad[]): string {
         const citationId = crypto.randomUUID();
 
-        this.citations.set(citationId, {
+        const citation: TripleCitation = {
+            type: 'triple',
             id: citationId,
             sessionId,
-            quads: quads,
+            quads,
             createdAt: new Date(),
-        });
+        };
 
-        // Track citation for session cleanup
-        if (!this.sessionCitations.has(sessionId)) {
-            this.sessionCitations.set(sessionId, new Set());
-        }
-        this.sessionCitations.get(sessionId)!.add(citationId);
+        return this.storeGenericCitation(citation, citationId);
+    }
 
-        return citationId;
+    /**
+     * Store a collection query result and generate a unique citation ID
+     * @param sessionId - The session ID that created this citation
+     * @param result - The collection query result
+     * @param description - Human-readable description of the query
+     * @returns The unique citation ID
+     */
+    storeCollectionCitation(sessionId: string, result: CollectionResult, description: string): string {
+        const citationId = crypto.randomUUID();
+
+        const citation: CollectionCitation = {
+            type: 'collection',
+            id: citationId,
+            sessionId,
+            result,
+            description,
+            createdAt: new Date(),
+        };
+
+        return this.storeGenericCitation(citation, citationId);
     }
 
     getCitationsForSession(sessionId: string): Citation[] {

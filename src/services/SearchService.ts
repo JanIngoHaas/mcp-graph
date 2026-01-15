@@ -40,6 +40,9 @@ export class SearchService {
     this.queryParser = new QueryParserService(backend);
   }
 
+  public getQueryParser(): QueryParserService {
+    return this.queryParser;
+  }
 
   public async searchAll(
     searchQuery: string,
