@@ -82,8 +82,23 @@ export class PrefixManager {
    * Add PREFIX declarations to a SPARQL query
    */
   public addPrefixesToQuery(query: string): string {
-    const prefixDeclarations = this.getPrefixDeclarations();
-    return `${prefixDeclarations}\n\n${query}`;
+    // Only add prefixes that aren't already declared in the query
+    const existingPrefixes = new Set<string>();
+    const prefixRegex = /PREFIX\s+(\w+):/gi;
+    let match;
+    while ((match = prefixRegex.exec(query)) !== null) {
+      existingPrefixes.add(match[1].toLowerCase());
+    }
+
+    const newPrefixes = Object.entries(this.prefixMap)
+      .filter(([prefix]) => !existingPrefixes.has(prefix.toLowerCase()))
+      .map(([prefix, uri]) => `PREFIX ${prefix}: <${uri}>`)
+      .join('\n');
+
+    if (newPrefixes.length === 0) {
+      return query;
+    }
+    return `${newPrefixes}\n\n${query}`;
   }
 
   /**

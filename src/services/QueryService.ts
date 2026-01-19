@@ -27,7 +27,7 @@ export class QueryService {
     modifiedQuery = prefixManager.addPrefixesToQuery(modifiedQuery);
 
     const context: QueryStringContext = {
-      sources,
+      sources: sources.map(source => ({ type: 'sparql' as const, value: source })),
     };
 
     // Add authentication headers if token is provided
@@ -71,7 +71,7 @@ export class QueryService {
     let modifiedQuery = prefixManager.addPrefixesToQuery(query);
 
     const context: QueryStringContext = {
-      sources,
+      sources: sources.map(source => ({ type: 'sparql' as const, value: source })),
     };
 
     if (this.sparqlToken) {
