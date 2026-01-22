@@ -40,28 +40,27 @@ export async function createServer(
       instructions: `This service connects you to an RDF-based Knowledge Graph for exploration and querying.
 
 Usage Information:
-1) Use 'search' to find relevant entities, classes, and properties for your topic
-2) Use 'inspect' on interesting URIs to understand their relationships and properties
-3) Use 'query' to execute precise SPARQL queries based on your discoveries
-4) [CITABLE] Use 'fact' to check facts (simple pattern matching). This tool can be CITED.
-5) [CITABLE] Use 'query_builder' to build explainable queries more easily. This ensures your queries are safe and syntax-error-free. This tool can be CITED.
+1) [EXPLAINABLE] Use 'search' to find relevant entities, classes, and properties for your topic
+2) [EXPLAINABLE] Use 'inspect' on interesting URIs to understand their relationships and properties
+3) Use 'query' to execute precise SPARQL queries based on your discoveries. NOTE: Raw SPARQL is NOT explainable in the final report.
+4) [EXPLAINABLE] [CITABLE] Use 'fact' to check facts (simple pattern matching). This tool can be CITED.
+5) [EXPLAINABLE] [CITABLE] Use 'query_builder' to build explainable queries more easily. This tool can be CITED.
 6) Use 'cite' to activate a citation for a fact or query you have verified.
 
-CITATION RULE: When you verify a claim using 'fact' or 'query_builder', the output will contain a "Citation Key". To make this citation user-facing, you MUST call the 'cite_tool' with this key.`,
-      WORKFLOW FOR COMPLEX QUESTIONS:
-        1) Use 'search' to find relevant entities, classes, and properties
-  2) Use 'inspect' to understand URIs and their relationships
-  3) Use 'fact' or 'query_builder' to verify claims
-  4) Use 'cite_fact' or 'cite_query_builder' to get citation HTML anchors(e.g., <a href="..." > [Source] </a>) for verified claims
+WORKFLOW FOR COMPLEX QUESTIONS:
+1) Use 'search' to find relevant entities, classes, and properties
+2) Use 'inspect' to understand URIs and their relationships  
+3) Use 'fact' (simple) or 'query_builder' (complex) to verify claims. Retrieve the "Citation Key".
+4) Use 'cite' with the Key to get a [Source](...) link.
 5) Use 'explain' as your FINAL output with:
-  - title: A descriptive title
-    - answer: Your complete response with embedded citation links(the < a > tags from step 4)
-      - steps: The verification steps so users can re - execute and verify
+   - title: A descriptive title
+   - answer: Your complete response with embedded citation links (from step 4)
+   - steps: The verification steps (Execution Keys) + description so users can re-execute and verify
 
-The 'explain' tool creates an interactive page where users see your answer with clickable citations, plus they can re - run each step to verify your reasoning.
+The 'explain' tool creates an interactive page showing your answer with citations and verification steps.
 
-CITATION FORMAT: cite_xxx tools return HTML anchor tags like < a href = "..." > [Source] </a>. Embed these directly in your answer text.
-    `,
+CITATION FORMAT: The 'cite' tool returns Markdown links like [Source](...). Embed these directly in your answer text.
+PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding evidence, as only 'query_builder' is fully explainable in the final interactive report. You may use 'query' for ultra-precise queries.`,
     }
   );
 
@@ -82,6 +81,60 @@ CITATION FORMAT: cite_xxx tools return HTML anchor tags like < a href = "..." > 
     queryBuilderService,
     sparqlEndpoint
   );
+
+  // Helper function to standardize tool execution, referencing, and citations
+  const handleToolExecution = async (
+    toolName: string,
+    request: any,
+    extra: any,
+    executor: () => Promise<{
+      text: string;
+      citation?: {
+        type: "triple" | "collection";
+        data: any; // The result/quads
+        description?: string; // For query_builder
+      };
+    }>,
+    options: { explainable?: boolean } = { explainable: true }
+  ) => {
+    const sessionId = checkSession(extra);
+
+    // Execute the specific tool logic
+    const result = await executor();
+
+    // Log Execution (Explainable)
+    let explainMsg = "";
+    if (options.explainable) {
+      const executionId = explanationDb.logExecution(sessionId, toolName, request);
+      explainMsg = `\n\nExecution Key: ${executionId}. Call 'explain' with this key and an explanation to give the user insight into your reasoning.`;
+    }
+
+    // Log Citation (if provided)
+    let citationMsg = "";
+    if (result.citation) {
+      let citationId;
+      if (result.citation.type === "triple") {
+        citationId = citationDb.storeCitation(sessionId, result.citation.data);
+      } else {
+        citationId = citationDb.storeQueryBuilderCitation(
+          sessionId,
+          result.citation.data,
+          result.citation.description || ""
+        );
+      }
+      citationMsg = `\n\nCitation Key: ${citationId}. Call 'cite' with this key to generate a verification link.`;
+    }
+
+    // Combine Output
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: result.text + citationMsg + explainMsg,
+        },
+      ],
+    };
+  };
 
   server.registerTool(
     "query",
@@ -110,18 +163,12 @@ CITATION FORMAT: cite_xxx tools return HTML anchor tags like < a href = "..." > 
           ),
       },
     },
-    async (request: { query: string; language: string; maxRows?: number }) => {
-      const { query, language, maxRows = 100 } = request;
-      const res = await queryService.executeQuery(query, [sparqlEndpoint], language, maxRows);
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: res,
-          },
-        ],
-      };
+    async (request: { query: string; language: string; maxRows?: number }, extra: any) => {
+      return handleToolExecution("query", request, extra, async () => {
+        const { query, language, maxRows = 100 } = request;
+        const res = await queryService.executeQuery(query, [sparqlEndpoint], language, maxRows);
+        return { text: res };
+      }, { explainable: false });
     }
   );
 
@@ -184,42 +231,29 @@ CITATION FORMAT: cite_xxx tools return HTML anchor tags like < a href = "..." > 
     "fact",
     {
       description:
-        "[CITABLE] Verify specific relationships or find missing values. Returns a citation key that can be used with the 'cite' tool (to prove your claims). Use wildcard '_' to discover unknown parts of a triple. Use this tool for simple factoid questions or to verify a single or multiple simple claims precisely. Do not use this tool for complex queries that require complex multiple steps or joins.",
+        "[EXPLAINABLE] [CITABLE] Verify specific relationships or find missing values. Returns a citation key that can be used with the 'cite' tool (to prove your claims). Use wildcard '_' to discover unknown parts of a triple. Use this tool for simple factoid questions or to verify a single or multiple simple claims precisely. Do not use this tool for complex queries that require complex multiple steps or joins.",
       inputSchema: FactInputSchema,
     },
     async (request: FactRequest, extra: any) => {
-      const { subject, predicate, object, limit } = request;
-      const sessionId = checkSession(extra);
+      return handleToolExecution("fact", request, extra, async () => {
+        const { subject, predicate, object, limit } = request;
+        const result = await tripleService.completeTriple(subject, predicate, object, limit);
 
+        if (result.length === 0) {
+          return { text: "No matching triples found." };
+        }
 
-      const result = await tripleService.completeTriple(subject, predicate, object, limit);
+        // Format as Markdown for the model
+        const md = formatQuadsToMarkdown(result, true);
 
-      if (result.length === 0) {
         return {
-          content: [
-            {
-              type: "text",
-              text: "No matching triples found.",
-            },
-          ],
-        };
-      }
-
-      // Format as Markdown for the model
-      const md = formatQuadsToMarkdown(result, true);
-
-      // Generate citation
-      const citationId = citationDb.storeCitation(sessionId, result);
-      const citationMsg = `\n\nCitation Key: ${ citationId }. Call 'cite' with this key to generate a verification link that the user can view.`;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: md + citationMsg,
+          text: md,
+          citation: {
+            type: "triple",
+            data: result,
           },
-        ],
-      };
+        };
+      });
     }
   );
 
@@ -232,8 +266,6 @@ CITATION FORMAT: cite_xxx tools return HTML anchor tags like < a href = "..." > 
       inputSchema: {
         key: z.string().describe("The citation key (UUID) to activate")
       },
-        "Generate a citation link for a verified fact. Use this AFTER verifying with 'fact'. Returns an HTML anchor tag you can embed directly in your answer.",
-      inputSchema: FactInputSchema,
     },
     async (request: { key: string }) => {
       const { key } = request;
@@ -241,468 +273,395 @@ CITATION FORMAT: cite_xxx tools return HTML anchor tags like < a href = "..." > 
 
       if (success) {
         // reconstruct the link to show it to the agent
-        const citationLink = `${ citationBase }/${key}`;
-  return {
-    content: [
-      {
-        type: "text",
-        text: `Citation activated: [Source](${citationLink})\nYou may now include this link in your (final) response to the USER.`,
-      },
-    ],
-  };
-} else {
-  return {
-    content: [
-      {
-        type: "text",
-        text: `Error: Citation key '${key}' not found or invalid.`,
-      },
-    ],
-  };
-}
-      }
-
-const citationId = citationDb.storeCitation(sessionId, result);
-const citationLink = `${citationBase}/${citationId}`;
-
-return {
-  content: [
-    {
-      type: "text",
-      text: `Citation ID: ${citationId}\nEmbed this in your answer: <a href="${citationLink}" target="_blank">[Source]</a>\n\nUse this HTML anchor tag in your answer text to cite this fact.`,
-    },
-  ],
-};
-    }
-  );
-
-type QueryBuilderRequest = {
-  type: string
-  filters?: Array<{ path: string; operator: "=" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "search"; value: string }>;
-  project: string[];
-  limit: number;
-}
-
-// Register the query_builder tool for structured queries with path traversal
-server.registerTool(
-  "query_builder",
-  {
-    description:
-      `[CITABLE] Build and execute structured queries with relationship traversal. Returns a citation key that can be used with the 'cite' tool (to prove your claims). Use this tool to filter lists of entities.\n\nKey Features:\n- Path Traversal: Filter by properties of related entities using dot notation (e.g., 'dblp:authoredBy.label' checks the label of the author).\n- Multiple Filters: Combine multiple conditions.\n- JSON Escaping: String values with double quotes use standard JSON escaping (\"value\").\n\nExample: "Find publications by 'Martin Gaedke' published after 2020"\n{\n  "type": "https://dblp.org/rdf/schema#Publication",\n  "filters": [\n    { "path": "dblp:authoredBy.label", "operator": "contains", "value": "Martin Gaedke" },\n    { "path": "dblp:yearOfPublication", "operator": ">", "value": "\"2020\"^^xsd:gYear" }\n  ],\n  "project": ["label", "dblp:yearOfPublication", "dblp:authoredBy.label"]\n}`,
-    inputSchema: QueryBuilderInputSchema,
-  },
-  async (request: QueryBuilderRequest, extra: any) => {
-    const { type, filters, project, limit } = request;
-    const sessionId = checkSession(extra);
-
-    try {
-      // Transform filters to proper type
-      const typedFilters = filters?.map(f => ({
-        path: f.path,
-        operator: f.operator,
-        value: f.value,
-      }));
-
-      const result = await queryBuilderService.executeQuery({
-        type,
-        filters: typedFilters,
-        project,
-        limit,
-      });
-
-      // Format result as markdown table
-      const markdown = formatQuadsToMarkdown(result.quads, true);
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: markdown,
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error executing query: ${error}`,
-          },
-        ],
-      };
-    }
-  }
-);
-
-// Register the cite_query_builder tool for citation generation
-server.registerTool(
-  "cite_query_builder",
-  {
-    description:
-      "Generate a citation link for a query_builder query. Use this AFTER executing with 'query_builder'. Returns an HTML anchor tag you can embed directly in your answer.",
-    inputSchema: QueryBuilderInputSchema,
-  },
-  async (
-    request: QueryBuilderRequest,
-    extra: any
-  ) => {
-    const { type, filters, project, limit } = request;
-
-    const sessionId = extra?.sessionId;
-    if (!sessionId) {
-      return {
-        content: [{ type: "text", text: "Error: No session ID available for citation." }],
-      };
-    }
-
-    try {
-      // Transform filters to proper type
-      const typedFilters = filters?.map(f => ({
-        path: f.path,
-        operator: f.operator,
-        value: f.value,
-      }));
-
-      const result = await queryBuilderService.executeQuery({
-        type,
-        filters: typedFilters,
-        project,
-        limit,
-      });
-
-      if (result.count === 0) {
+        const citationLink = `${citationBase}/${key}`;
         return {
           content: [
             {
               type: "text",
-              text: "No results found for the query. Cannot generate citation.",
+              text: `Citation activated: [Source](${citationLink})\nYou may now include this link in your (final) response to the USER.`,
+            },
+          ],
+        };
+      } else {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Citation key '${key}' not found or invalid.`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
+  type QueryBuilderRequest = {
+    type: string
+    filters?: Array<{ path: string; operator: "=" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "search"; value: string }>;
+    project: string[];
+    limit: number;
+  }
+
+  // Register the query_builder tool for structured queries with path traversal
+  server.registerTool(
+    "query_builder",
+    {
+      description:
+        `[EXPLAINABLE] [CITABLE] Build and execute structured queries with relationship traversal. Returns a citation key that can be used with the 'cite' tool (to prove your claims). Use this tool to filter lists of entities.\n\nKey Features:\n- Path Traversal: Filter by properties of related entities using dot notation (e.g., 'dblp:authoredBy.label' checks the label of the author).\n- Multiple Filters: Combine multiple conditions.\n- JSON Escaping: String values with double quotes use standard JSON escaping (\"value\").\n\nExample: "Find publications by 'Martin Gaedke' published after 2020"\n{\n  "type": "https://dblp.org/rdf/schema#Publication",\n  "filters": [\n    { "path": "dblp:authoredBy.label", "operator": "contains", "value": "Martin Gaedke" },\n    { "path": "dblp:yearOfPublication", "operator": ">", "value": "\"2020\"^^xsd:gYear" }\n  ],\n  "project": ["label", "dblp:yearOfPublication", "dblp:authoredBy.label"]\n}`,
+      inputSchema: QueryBuilderInputSchema,
+    },
+    async (request: QueryBuilderRequest, extra: any) => {
+      return handleToolExecution("query_builder", request, extra, async () => {
+        const { type, filters, project, limit } = request;
+
+        try {
+          // Transform filters to proper type
+          const typedFilters = filters?.map((f) => ({
+            path: f.path,
+            operator: f.operator,
+            value: f.value,
+          }));
+
+          const result = await queryBuilderService.executeQuery({
+            type,
+            filters: typedFilters,
+            project,
+            limit,
+          });
+
+          // Format result as markdown table
+          const markdown = formatQuadsToMarkdown(result.quads, true);
+
+          // Generate description for citation
+          const description = await queryBuilderService.generateDescription({
+            type,
+            filters: typedFilters,
+            project,
+            limit,
+          });
+
+          return {
+            text: markdown,
+            citation: {
+              type: "collection",
+              data: result,
+              description,
+            },
+          };
+        } catch (error) {
+          return { text: `Error executing query: ${error}` };
+        }
+      });
+    }
+  );
+
+  // Register the search all tool
+  server.registerTool(
+    "search",
+    {
+      description:
+        `[EXPLAINABLE] Search for RDF entities using boolean queries.`,
+      inputSchema: {
+        query: z
+          .string()
+          .describe(
+            `Boolean search query using syntactic, fuzzy search algorithm (be more precise). Examples: '"Albert Einstein"' (exact phrase), 'Albert Einstein' (sentences containing both 'Albert' and 'Einstein'. PREFER THIS - you will have better results and you can later fine-tune your search), 'Thomas OR Albert' (union), 'physicist AND Nobel' (intersection), '(quantum mechanics) AND Einstein' (grouping), 'Thomas Hinkel' (both words must appear). Quoted strings are exact phrases, unquoted multi-words require all words to appear. PREFER UNQUOTED for better results.`
+          ),
+        limit: z
+          .number()
+          .optional()
+          .default(20)
+          .describe("Maximum number of results to return (default: 20)"),
+        offset: z
+          .number()
+          .optional()
+          .default(0)
+          .describe("Number of results to skip for pagination (default: 0)"),
+      },
+    },
+    async (request: { query: string; limit: number; offset: number }, extra: any) => {
+      return handleToolExecution("search", request, extra, async () => {
+        const { query, limit, offset } = request;
+
+        if (!query) {
+          throw new Error("Query parameter is required");
+        }
+
+        // Trim any leading/trailing single quotes from query
+        const trimmedQuery = query.replace(/^'|'$/g, "");
+
+        const results = await searchService.searchAll(
+          trimmedQuery,
+          sparqlEndpoint,
+          limit,
+          offset
+        );
+
+        const response = searchService.renderResourceResult(results);
+        return { text: response };
+      });
+    }
+  );
+
+  // Register the unified inspect tool
+  server.registerTool(
+    "inspect",
+    {
+      description:
+        '[EXPLAINABLE] Inspect any URI in the knowledge graph. Shows relationships and properties for classes, properties, or entities.',
+      inputSchema: {
+        uri: z
+          .string()
+          .describe(
+            "The URI to inspect - can be a class, property, entity, or any other URI in the knowledge graph"
+          ),
+        expandProperties: z
+          .array(z.string())
+          .optional()
+          .default([])
+          .describe(
+            "Optional array of property URIs to expand and show all values for (only applies to entity inspection, by default only shows first few values)"
+          ),
+        relevantToQuery: z
+          .string()
+          .describe(
+            "Query to filter and rank results by semantic relevance. Results will be ordered by similarity to this query."
+          ),
+        maxResults: z
+          .number()
+          .optional()
+          .default(15)
+          .describe(
+            "Maximum number of results to return per category (default: 15). Set to a high number like 1000 if you need to see all results."
+          ),
+      },
+    },
+    async (
+      request: {
+        uri: string;
+        expandProperties?: string[];
+        relevantToQuery: string;
+        maxResults?: number;
+      },
+      extra: any
+    ) => {
+      return handleToolExecution("inspect", request, extra, async () => {
+        const {
+          uri,
+          expandProperties = [],
+          relevantToQuery,
+          maxResults = 15,
+        } = request;
+
+        try {
+          const result = await inspectionService.inspect(
+            uri,
+            expandProperties,
+            relevantToQuery,
+            maxResults
+          );
+
+          return { text: result };
+        } catch (error) {
+          throw new Error(`Failed to inspect URI: ${error}`);
+        }
+      });
+    }
+  );
+
+  server.registerResource(
+    "citation",
+    "citation://session",
+    {
+      mimeType: "application/json",
+      title: "Session Citations",
+      description: "Get all citations for the current session as a JSON list, including their raw TTL.",
+    },
+    async (uri, extra: any) => {
+      const sessionId = checkSession(extra);
+
+      const citations = citationDb.getCitationsForSession(sessionId);
+
+      // For the session list, we return a JSON array of citation objects
+      // including formatted TTL for triple citations or result data for collections
+      const responseData = await Promise.all(citations.map(async (c) => {
+        if (c.type === 'triple') {
+          return {
+            type: 'triple',
+            id: c.id,
+            sessionId: c.sessionId,
+            ttl: await formatQuadsToTtl(c.quads),
+            createdAt: c.createdAt
+          };
+        } else {
+          return {
+            type: 'collection',
+            id: c.id,
+            sessionId: c.sessionId,
+            description: c.description,
+            count: c.result.count,
+            ttl: await formatQuadsToTtl(c.result.quads),
+            createdAt: c.createdAt
+          };
+        }
+      }));
+
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(responseData, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // Register the explain tool for creating reproducible explanations
+  server.registerTool(
+    "explain",
+    {
+      description:
+        "Create an interactive explanation page with your answer and the steps you took. This is your FINAL output for complex questions. The 'answer' field contains your response with embedded citation links (from cite_xxx tools). The 'steps' field links to SOME of your previous tool executions.",
+      inputSchema: {
+        title: z
+          .string()
+          .describe("A descriptive title for this explanation (e.g., 'Finding papers by Martin Gaedke')"),
+        answer: z
+          .string()
+          .describe("Your complete answer to the user's question, with embedded citation links using [Source](...) links from the cite tool"),
+        steps: z
+          .array(
+            z.object({
+              executionKey: z
+                .string()
+                .describe("The Execution Key (UUID) returned by a previous tool execution (search, inspect, etc.)"),
+              description: z
+                .string()
+                .describe("Human-readable description of what this step did and why you took it (e.g., 'I used the ID from the previous step to find his publications')"),
+            })
+          )
+          .describe("The ordered list of verification steps that led to your answer, referencing previous tool executions. NOTE: Only include steps that were successful and relevant to the final answer. Disregard any steps that didn't contribute to the final answer."),
+      },
+    },
+    async (
+      request: {
+        title: string;
+        answer: string;
+        steps: Array<{
+          executionKey: string;
+          description: string;
+        }>;
+      },
+      extra: any
+    ) => {
+      const { title, answer, steps } = request;
+      const sessionId = extra?.sessionId;
+
+      if (!sessionId) {
+        return {
+          content: [{ type: "text", text: "Error: No session ID available for explanation." }],
+        };
+      }
+
+      if (!answer) {
+        return {
+          content: [{ type: "text", text: "Error: An answer is required." }],
+        };
+      }
+
+      if (!steps || steps.length === 0) {
+        return {
+          content: [{ type: "text", text: "Error: At least one step is required." }],
+        };
+      }
+
+      // Resolve execution keys to actual tool parameters
+      const resolvedSteps: any[] = [];
+      const missingKeys: string[] = [];
+
+      for (const step of steps) {
+        const execution = explanationDb.getExecution(step.executionKey);
+        if (!execution) {
+          missingKeys.push(step.executionKey);
+          continue;
+        }
+        resolvedSteps.push({
+          description: step.description,
+          executionKey: step.executionKey,
+          toolName: execution.toolName,
+          toolParams: execution.params
+        });
+      }
+
+      if (missingKeys.length > 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Could not find tool executions for keys: ${missingKeys.join(", ")}. Please ensure you are using valid Execution Keys returned by the tools.`,
             },
           ],
         };
       }
 
-      // Generate description
-      const description = await queryBuilderService.generateDescription({
-        type,
-        filters: typedFilters,
-        project,
-        limit,
-      });
-
-      const citationId = citationDb.storeQueryBuilderCitation(
-        sessionId,
-        result,
-        description
-      );
-      const citationMsg = `\n\nCitation Key: ${citationId}. Call 'cite' with this key to generate a verification link that the user can view.`;
+      const explanationId = explanationService.storeExplanation(sessionId, title, answer, resolvedSteps);
+      const explanationLink = `${explainBase}/${explanationId}`;
 
       return {
         content: [
           {
             type: "text",
-            text: markdown + citationMsg,
-            text: `Citation ID: ${citationId}\nEmbed this in your answer: <a href="${citationLink}" target="_blank">[Source]</a>\n\nUse this HTML anchor tag in your answer text to cite this query result.`,
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error executing query: ${error}`,
+            text: `Explanation created: [View Interactive Explanation](${explanationLink})\n\nThis page shows your answer with citations and the ${steps.length} verification steps.`,
           },
         ],
       };
     }
-  }
-);
+  );
 
-
-// Register the search all tool
-server.registerTool(
-  "search",
-  {
-    description:
-      `Search for RDF entities using boolean queries.`,
-    inputSchema: {
-      query: z
-        .string()
-        .describe(
-          `Boolean search query using syntactic, fuzzy search algorithm (be more precise). Examples: '"Albert Einstein"' (exact phrase), 'Albert Einstein' (sentences containing both 'Albert' and 'Einstein'. PREFER THIS - you will have better results and you can later fine-tune your search), 'Thomas OR Albert' (union), 'physicist AND Nobel' (intersection), '(quantum mechanics) AND Einstein' (grouping), 'Thomas Hinkel' (both words must appear). Quoted strings are exact phrases, unquoted multi-words require all words to appear. PREFER UNQUOTED for better results.`
-        ),
-      limit: z
-        .number()
-        .optional()
-        .default(20)
-        .describe("Maximum number of results to return (default: 20)"),
-      offset: z
-        .number()
-        .optional()
-        .default(0)
-        .describe("Number of results to skip for pagination (default: 0)"),
+  // Register MCP resource for explanations
+  server.registerResource(
+    "explanation",
+    "explanation://session",
+    {
+      mimeType: "application/json",
+      title: "Session Explanations",
+      description: "Get all explanations for the current session as a JSON list.",
     },
-  },
-  async (request: { query: string; limit: number; offset: number }) => {
-    const { query, limit, offset } = request;
-
-    if (!query) {
-      throw new Error("Query parameter is required");
-    }
-
-    // Trim any leading/trailing single quotes from query
-    const trimmedQuery = query.replace(/^'|'$/g, '');
-
-    const results = await searchService.searchAll(
-      trimmedQuery,
-      sparqlEndpoint,
-      limit,
-      offset
-    );
-
-    const response = searchService.renderResourceResult(results);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: response,
-        },
-      ],
-    };
-  }
-);
-
-// Register the unified inspect tool
-server.registerTool(
-  "inspect",
-  {
-    description:
-      'Inspect any URI in the knowledge graph. Shows relationships and properties for classes, properties, or entities.',
-    inputSchema: {
-      uri: z
-        .string()
-        .describe(
-          "The URI to inspect - can be a class, property, entity, or any other URI in the knowledge graph"
-        ),
-      expandProperties: z
-        .array(z.string())
-        .optional()
-        .default([])
-        .describe(
-          "Optional array of property URIs to expand and show all values for (only applies to entity inspection, by default only shows first few values)"
-        ),
-      relevantToQuery: z
-        .string()
-        .describe(
-          "Query to filter and rank results by semantic relevance. Results will be ordered by similarity to this query."
-        ),
-      maxResults: z
-        .number()
-        .optional()
-        .default(15)
-        .describe(
-          "Maximum number of results to return per category (default: 15). Set to a high number like 1000 if you need to see all results."
-        ),
-    },
-  },
-  async (request: {
-    uri: string;
-    expandProperties?: string[];
-    relevantToQuery: string;
-    maxResults?: number;
-  }) => {
-    const { uri, expandProperties = [], relevantToQuery, maxResults = 15 } = request;
-    try {
-      const result = await inspectionService.inspect(
-        uri,
-        expandProperties,
-        relevantToQuery,
-        maxResults
-      );
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: result,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to inspect URI: ${error}`);
-    }
-  }
-);
-
-server.registerResource(
-  "citation",
-  "citation://session",
-  {
-    mimeType: "application/json",
-    title: "Session Citations",
-    description: "Get all citations for the current session as a JSON list, including their raw TTL.",
-  },
-  async (uri, extra: any) => {
-    const sessionId = checkSession(extra);
-
-    const citations = citationDb.getCitationsForSession(sessionId);
-
-    // For the session list, we return a JSON array of citation objects
-    // including formatted TTL for triple citations or result data for collections
-    const responseData = await Promise.all(citations.map(async (c) => {
-      if (c.type === 'triple') {
-        return {
-          type: 'triple',
-          id: c.id,
-          sessionId: c.sessionId,
-          ttl: await formatQuadsToTtl(c.quads),
-          createdAt: c.createdAt
-        };
-      } else {
-        return {
-          type: 'collection',
-          id: c.id,
-          sessionId: c.sessionId,
-          description: c.description,
-          count: c.result.count,
-          ttl: await formatQuadsToTtl(c.result.quads),
-          createdAt: c.createdAt
-        };
+    async (uri, extra: any) => {
+      const sessionId = extra?.sessionId;
+      if (!sessionId) {
+        throw new Error("No session ID available for explanation lookup.");
       }
-    }));
 
-    return {
-      contents: [
-        {
-          uri: uri.href,
-          mimeType: "application/json",
-          text: JSON.stringify(responseData, null, 2),
-        },
-      ],
-    };
-  }
-);
+      const explanations = explanationDb.getExplanationsForSession(sessionId);
 
-// Register the explain tool for creating reproducible explanations
-server.registerTool(
-  "explain",
-  {
-    description:
-      "Create an interactive explanation page with your answer and the steps you took. This is your FINAL output for complex questions. The 'answer' field contains your response with embedded citation links (from cite_xxx tools). The 'steps' field shows how you arrived at the answer, so users can verify it.",
-    inputSchema: {
-      title: z
-        .string()
-        .describe("A descriptive title for this explanation (e.g., 'Finding papers by Martin Gaedke')"),
-      answer: z
-        .string()
-        .describe("Your complete answer to the user's question, with embedded citation links using <a href='...'>[Source]</a> tags from cite_fact or cite_query_builder"),
-      steps: z
-        .array(
-          z.object({
-            description: z
-              .string()
-              .describe("Human-readable description of what this step does (e.g., 'Search for the author')"),
-            toolName: z
-              .enum(["search", "inspect", "fact", "query_builder"])
-              .describe("The tool that was used for this step"),
-            toolParams: z
-              .record(z.any())
-              .describe("The parameters to re-execute this step (same as you used originally)"),
-          })
-        )
-        .describe("The ordered list of verification steps that led to your answer"),
-    },
-  },
-  async (
-    request: {
-      title: string;
-      answer: string;
-      steps: Array<{
-        description: string;
-        toolName: "search" | "inspect" | "fact" | "query_builder";
-        toolParams: Record<string, any>;
-      }>;
-    },
-    extra: any
-  ) => {
-    const { title, answer, steps } = request;
-    const sessionId = extra?.sessionId;
+      const responseData = explanations.map((e: any) => ({
+        id: e.id,
+        sessionId: e.sessionId,
+        title: e.title,
+        answer: e.answer,
+        stepCount: e.steps.length,
+        steps: e.steps.map((s: any) => ({
+          description: s.description,
+          toolName: s.toolName,
+        })),
+        createdAt: e.createdAt,
+        url: `${explainBase}/${e.id}`,
+      }));
 
-    if (!sessionId) {
       return {
-        content: [{ type: "text", text: "Error: No session ID available for explanation." }],
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(responseData, null, 2),
+          },
+        ],
       };
     }
+  );
 
-    if (!answer) {
-      return {
-        content: [{ type: "text", text: "Error: An answer is required." }],
-      };
-    }
-
-    if (!steps || steps.length === 0) {
-      return {
-        content: [{ type: "text", text: "Error: At least one step is required." }],
-      };
-    }
-
-    const explanationId = explanationService.storeExplanation(sessionId, title, answer, steps);
-    const explanationLink = `${explainBase}/${explanationId}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Explanation created: [View Interactive Explanation](${explanationLink})\n\nThis page shows your answer with citations and the ${steps.length} verification steps.`,
-        },
-      ],
-    };
-  }
-);
-
-// Register MCP resource for explanations
-server.registerResource(
-  "explanation",
-  "explanation://session",
-  {
-    mimeType: "application/json",
-    title: "Session Explanations",
-    description: "Get all explanations for the current session as a JSON list.",
-  },
-  async (uri, extra: any) => {
-    const sessionId = extra?.sessionId;
-    if (!sessionId) {
-      throw new Error("No session ID available for explanation lookup.");
-    }
-
-    const explanations = explanationDb.getExplanationsForSession(sessionId);
-
-    const responseData = explanations.map((e: any) => ({
-      id: e.id,
-      sessionId: e.sessionId,
-      title: e.title,
-      answer: e.answer,
-      stepCount: e.steps.length,
-      steps: e.steps.map((s: any) => ({
-        description: s.description,
-        toolName: s.toolName,
-      })),
-      createdAt: e.createdAt,
-      url: `${explainBase}/${e.id}`,
-    }));
-
-    return {
-      contents: [
-        {
-          uri: uri.href,
-          mimeType: "application/json",
-          text: JSON.stringify(responseData, null, 2),
-        },
-      ],
-    };
-  }
-);
-
-return server;
+  return server;
 }

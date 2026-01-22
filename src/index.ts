@@ -226,7 +226,7 @@ async function main() {
         }
 
         try {
-            const html = generateExplanationHtml(explanation, publicUrl);
+            const html = await generateExplanationHtml(explanation, publicUrl);
             res.setHeader("Content-Type", "text/html; charset=utf-8");
             res.send(html);
         } catch (e) {
