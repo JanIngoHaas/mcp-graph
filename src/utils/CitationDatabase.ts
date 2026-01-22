@@ -10,6 +10,7 @@ export interface TripleCitation {
     sessionId: string;
     quads: Quad[];
     createdAt: Date;
+    isActive: boolean;
 }
 
 /**
@@ -22,6 +23,7 @@ export interface QueryBuilderCitation {
     result: QueryBuilderResult;
     description: string;
     createdAt: Date;
+    isActive: boolean;
 }
 
 /**
@@ -61,6 +63,7 @@ export class CitationDatabase {
             sessionId,
             quads,
             createdAt: new Date(),
+            isActive: false
         };
 
         return this.storeGenericCitation(citation, citationId);
@@ -83,15 +86,37 @@ export class CitationDatabase {
             result,
             description,
             createdAt: new Date(),
+            isActive: false
         };
 
         return this.storeGenericCitation(citation, citationId);
     }
 
+    /**
+     * Activate a citation by ID
+     * @param citationId - The citation ID
+     * @returns true if activated, false if not found
+     */
+    activateCitation(citationId: string): boolean {
+        const citation = this.citations.get(citationId);
+        if (citation) {
+            citation.isActive = true;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Get all active citations for a session
+     * @param sessionId - The session ID
+     * @returns List of active citations
+     */
     getCitationsForSession(sessionId: string): Citation[] {
         const citationIds = this.sessionCitations.get(sessionId);
         if (citationIds) {
-            return Array.from(citationIds).map((id) => this.citations.get(id)!);
+            return Array.from(citationIds)
+                .map((id) => this.citations.get(id)!)
+                .filter(citation => citation.isActive);
         }
         return [];
     }

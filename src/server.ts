@@ -9,6 +9,14 @@ import { formatQuadsToMarkdown, formatQuadsToTtl } from "./utils/formatting.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
 import { CitationDatabase } from "./utils/CitationDatabase.js";
 
+function checkSession(extra: any): string {
+  const sessionId = extra?.sessionId;
+  if (!sessionId) {
+    throw new Error("No session ID available. This tool requires a connected session.");
+  }
+  return sessionId;
+}
+
 export async function createServer(
   sparqlEndpoint: string,
   endpointEngine: string,
@@ -31,15 +39,11 @@ Usage Information:
 1) Use 'search' to find relevant entities, classes, and properties for your topic
 2) Use 'inspect' on interesting URIs to understand their relationships and properties
 3) Use 'query' to execute precise SPARQL queries based on your discoveries
-4) Use 'fact' to check facts (simple pattern matching)
-5) Use 'cite_fact' to generate a verification link for the USER. This link reveals the same triples you verified with 'fact'.
-6) Use 'query_builder' to build explainable queries more easily. This ensures your queries are safe and syntax-error-free.
-7) Use 'cite_query_builder' to generate a user-facing link for queries created by query_builder.
-CITATION RULE: Always check facts first with 'fact' OR 'query_builder' if you need to return lists of facts, then cite them using 'cite_fact' OR 'cite_query_builder' when making a claim.
-When to use 'fact' vs 'query_builder':
-- Use 'fact' when you have a single claim that only requires a few triples to verify.
-- Use 'query_builder' when you have a single claim that requires (dynamically retrieved) lists of facts to verify. 
-`,
+4) [CITABLE] Use 'fact' to check facts (simple pattern matching). This tool can be CITED.
+5) [CITABLE] Use 'query_builder' to build explainable queries more easily. This ensures your queries are safe and syntax-error-free. This tool can be CITED.
+6) Use 'cite' to activate a citation for a fact or query you have verified.
+
+CITATION RULE: When you verify a claim using 'fact' or 'query_builder', the output will contain a "Citation Key". To make this citation user-facing, you MUST call the 'cite_tool' with this key.`,
     }
   );
 
@@ -133,7 +137,7 @@ When to use 'fact' vs 'query_builder':
       .describe("Filter conditions applied with AND logic"),
     project: z
       .array(z.string())
-      .describe("Property paths to return as columns (e.g., ['label', 'dblp:year']). Full URIs MUST be wrapped in <...>."),
+      .describe("Property paths to return as columns (e.g., ['label', 'dblp:yearOfPublication']). Full URIs MUST be wrapped in <...>."),
     limit: z
       .number()
       .default(100)
@@ -152,11 +156,14 @@ When to use 'fact' vs 'query_builder':
     "fact",
     {
       description:
-        "Verify specific relationships or find missing values. Use wildcard '_' to discover unknown parts of a triple. Use this tool for simple factoid questions or to verify a single or multiple simple claims precisely. Do not use this tool for complex queries that require complex multiple steps or joins.",
+        "[CITABLE] Verify specific relationships or find missing values. Returns a citation key that can be used with the 'cite' tool (to prove your claims). Use wildcard '_' to discover unknown parts of a triple. Use this tool for simple factoid questions or to verify a single or multiple simple claims precisely. Do not use this tool for complex queries that require complex multiple steps or joins.",
       inputSchema: FactInputSchema,
     },
-    async (request: FactRequest) => {
+    async (request: FactRequest, extra: any) => {
       const { subject, predicate, object, limit } = request;
+      const sessionId = checkSession(extra);
+
+
       const result = await tripleService.completeTriple(subject, predicate, object, limit);
 
       if (result.length === 0) {
@@ -173,54 +180,56 @@ When to use 'fact' vs 'query_builder':
       // Format as Markdown for the model
       const md = formatQuadsToMarkdown(result, true);
 
+      // Generate citation
+      const citationId = citationDb.storeCitation(sessionId, result);
+      const citationMsg = `\n\nCitation Key: ${citationId}. Call 'cite' with this key to generate a verification link that the user can view.`;
+
       return {
         content: [
           {
             type: "text",
-            text: md,
+            text: md + citationMsg,
           },
         ],
       };
     }
   );
 
-  // Register the cite tool for citation generation
+  // Register the generic cite tool
   server.registerTool(
-    "cite_fact",
+    "cite",
     {
       description:
-        "Generate a citation link for a verified fact. Use this tool AFTER you have verified a triple with 'fact' to provide a reference link. It works exactly like 'fact' but returns a citation URL instead of the triples.",
-      inputSchema: FactInputSchema,
+        "Activate a citation. Pass the 'key' (UUID) you received from 'fact' or 'query_builder' to generate a permanent user-facing link that the user can open in their browser and view to verify your claims!",
+      inputSchema: {
+        key: z.string().describe("The citation key (UUID) to activate")
+      },
     },
-    async (request: FactRequest, extra: any) => {
-      const { subject, predicate, object, limit } = request;
+    async (request: { key: string }) => {
+      const { key } = request;
+      const success = citationDb.activateCitation(key);
 
-      const result = await tripleService.completeTriple(subject, predicate, object, limit);
-
-      if (result.length === 0) {
+      if (success) {
+        // reconstruct the link to show it to the agent
+        const citationLink = `${citationBase}/${key}`;
         return {
-          content: [{ type: "text", text: "No matching triples found. Cannot generate citation." }]
+          content: [
+            {
+              type: "text",
+              text: `Citation activated: [Source](${citationLink})\nYou may now include this link in your (final) response to the USER.`,
+            },
+          ],
+        };
+      } else {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Citation key '${key}' not found or invalid.`,
+            },
+          ],
         };
       }
-
-      const sessionId = extra?.sessionId;
-      if (!sessionId) {
-        return {
-          content: [{ type: "text", text: "Error: No session ID available for citation." }]
-        };
-      }
-
-      const citationId = citationDb.storeCitation(sessionId, result);
-      const citationLink = `${citationBase}/${citationId}`;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Citation link generated: [Source](${citationLink})\nThis link contains the triples matching the pattern. Use this to assert a claim. Do not try to read this link. It is for the USER only.`,
-          },
-        ],
-      };
     }
   );
 
@@ -236,11 +245,12 @@ When to use 'fact' vs 'query_builder':
     "query_builder",
     {
       description:
-        `Build and execute structured queries with relationship traversal. Use this tool to filter lists of entities.\n\nKey Features:\n- Path Traversal: Filter by properties of related entities using dot notation (e.g., 'authoredBy.label' checks the label of the author).\n- Multiple Filters: Combine multiple conditions.\n- JSON Escaping: String values with double quotes use standard JSON escaping (\"value\").\n\nExample: "Find publications by 'Martin Gaedke' published after 2020"\n{\n  "type": "https://dblp.org/rdf/schema#Publication",\n  "filters": [\n    { "path": "authoredBy.label", "operator": "contains", "value": "Martin Gaedke" },\n    { "path": "year", "operator": ">", "value": "\"2020\"^^xsd:gYear" }\n  ],\n  "project": ["label", "year", "authoredBy.label"]\n}`,
+        `[CITABLE] Build and execute structured queries with relationship traversal. Returns a citation key that can be used with the 'cite' tool (to prove your claims). Use this tool to filter lists of entities.\n\nKey Features:\n- Path Traversal: Filter by properties of related entities using dot notation (e.g., 'dblp:authoredBy.label' checks the label of the author).\n- Multiple Filters: Combine multiple conditions.\n- JSON Escaping: String values with double quotes use standard JSON escaping (\"value\").\n\nExample: "Find publications by 'Martin Gaedke' published after 2020"\n{\n  "type": "https://dblp.org/rdf/schema#Publication",\n  "filters": [\n    { "path": "dblp:authoredBy.label", "operator": "contains", "value": "Martin Gaedke" },\n    { "path": "dblp:yearOfPublication", "operator": ">", "value": "\"2020\"^^xsd:gYear" }\n  ],\n  "project": ["label", "dblp:yearOfPublication", "dblp:authoredBy.label"]\n}`,
       inputSchema: QueryBuilderInputSchema,
     },
-    async (request: QueryBuilderRequest) => {
+    async (request: QueryBuilderRequest, extra: any) => {
       const { type, filters, project, limit } = request;
+      const sessionId = checkSession(extra);
 
       try {
         // Transform filters to proper type
@@ -260,11 +270,26 @@ When to use 'fact' vs 'query_builder':
         // Format result as markdown table
         const markdown = formatQuadsToMarkdown(result.quads, true);
 
+        // Generate description
+        const description = await queryBuilderService.generateDescription({
+          type,
+          filters: typedFilters,
+          project,
+          limit,
+        });
+
+        const citationId = citationDb.storeQueryBuilderCitation(
+          sessionId,
+          result,
+          description
+        );
+        const citationMsg = `\n\nCitation Key: ${citationId}. Call 'cite' with this key to generate a verification link that the user can view.`;
+
         return {
           content: [
             {
               type: "text",
-              text: markdown,
+              text: markdown + citationMsg,
             },
           ],
         };
@@ -281,89 +306,7 @@ When to use 'fact' vs 'query_builder':
     }
   );
 
-  // Register the cite_query_builder tool for citation generation
-  server.registerTool(
-    "cite_query_builder",
-    {
-      description:
-        "Generate a citation link for a query_builder query. Use this tool AFTER you have successfully executed a query with 'query_builder' to provide a reference link for the user. It works *exactly* like query_builder but returns a citation URL instead of data.",
-      inputSchema: QueryBuilderInputSchema,
-    },
-    async (
-      request: QueryBuilderRequest,
-      extra: any
-    ) => {
-      const { type, filters, project, limit } = request;
 
-      const sessionId = extra?.sessionId;
-      if (!sessionId) {
-        return {
-          content: [{ type: "text", text: "Error: No session ID available for citation." }],
-        };
-      }
-
-      try {
-        // Transform filters to proper type
-        const typedFilters = filters?.map(f => ({
-          path: f.path,
-          operator: f.operator,
-          value: f.value,
-        }));
-
-        const result = await queryBuilderService.executeQuery({
-          type,
-          filters: typedFilters,
-          project,
-          limit,
-        });
-
-        if (result.count === 0) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "No results found for the query. Cannot generate citation.",
-              },
-            ],
-          };
-        }
-
-        // Generate description
-        const description = await queryBuilderService.generateDescription({
-          type,
-          filters: typedFilters,
-          project,
-          limit,
-        });
-
-        // Store citation
-        const citationId = citationDb.storeQueryBuilderCitation(
-          sessionId,
-          result,
-          description
-        );
-        const citationLink = `${citationBase}/${citationId}`;
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Citation link generated: [Source](${citationLink})\nThis link contains the query results. Use this to assert claims about the data. Do not try to read this link. It is for the USER only.`,
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error generating query citation: ${error}`,
-            },
-          ],
-        };
-      }
-    }
-  );
 
 
   // Register the search all tool
@@ -491,10 +434,7 @@ When to use 'fact' vs 'query_builder':
       description: "Get all citations for the current session as a JSON list, including their raw TTL.",
     },
     async (uri, extra: any) => {
-      const sessionId = extra?.sessionId;
-      if (!sessionId) {
-        throw new Error("No session ID available for citation lookup.");
-      }
+      const sessionId = checkSession(extra);
 
       const citations = citationDb.getCitationsForSession(sessionId);
 
