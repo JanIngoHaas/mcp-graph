@@ -35,7 +35,7 @@ WORKFLOW FOR COMPLEX QUESTIONS:
 1) Use 'search' to find relevant entities, classes, and properties
 2) Use 'inspect' to understand URIs and their relationships  
 3) Use 'fact' or 'query_builder' to verify claims
-4) Use 'cite_fact' or 'cite_query_builder' to get citation HTML anchors (e.g., <a href="...">[Source]</a>)
+4) Use 'cite_fact' or 'cite_query_builder' to get citation HTML anchors (e.g., <a href="...">[Source]</a>) for verified claims
 5) Use 'explain' as your FINAL output with:
    - title: A descriptive title
    - answer: Your complete response with embedded citation links (the <a> tags from step 4)
