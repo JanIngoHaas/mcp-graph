@@ -5,19 +5,23 @@ import { SearchService } from "./services/SearchService.js";
 import { InspectionService } from "./services/InspectionService.js";
 import { TripleService } from "./services/TripleService.js";
 import { QueryBuilderService } from "./services/QueryBuilderService.js";
+import { ExplanationService } from "./services/ExplanationService.js";
 import { formatQuadsToMarkdown, formatQuadsToTtl } from "./utils/formatting.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
 import { CitationDatabase } from "./utils/CitationDatabase.js";
+import { ExplanationDatabase } from "./utils/ExplanationDatabase.js";
 
 export async function createServer(
   sparqlEndpoint: string,
   endpointEngine: string,
   sparqlToken: string | undefined,
   publicUrl: string,
-  citationDb: CitationDatabase
+  citationDb: CitationDatabase,
+  explanationDb: ExplanationDatabase
 ): Promise<McpServer> {
   const baseUrl = publicUrl.replace(/\/$/, ""); // Just the trail!
   const citationBase = `${baseUrl}/citation`;
+  const explainBase = `${baseUrl}/explain`;
 
   const server = new McpServer(
     {
@@ -27,18 +31,19 @@ export async function createServer(
     {
       instructions: `This service connects you to an RDF-based Knowledge Graph for exploration and querying.
 
-Usage Information:
-1) Use 'search' to find relevant entities, classes, and properties for your topic
-2) Use 'inspect' on interesting URIs to understand their relationships and properties
-3) Use 'query' to execute precise SPARQL queries based on your discoveries
-4) Use 'fact' to check facts (simple pattern matching)
-5) Use 'cite_fact' to generate a verification link for the USER. This link reveals the same triples you verified with 'fact'.
-6) Use 'query_builder' to build explainable queries more easily. This ensures your queries are safe and syntax-error-free.
-7) Use 'cite_query_builder' to generate a user-facing link for queries created by query_builder.
-CITATION RULE: Always check facts first with 'fact' OR 'query_builder' if you need to return lists of facts, then cite them using 'cite_fact' OR 'cite_query_builder' when making a claim.
-When to use 'fact' vs 'query_builder':
-- Use 'fact' when you have a single claim that only requires a few triples to verify.
-- Use 'query_builder' when you have a single claim that requires (dynamically retrieved) lists of facts to verify. 
+WORKFLOW FOR COMPLEX QUESTIONS:
+1) Use 'search' to find relevant entities, classes, and properties
+2) Use 'inspect' to understand URIs and their relationships  
+3) Use 'fact' or 'query_builder' to verify claims
+4) Use 'cite_fact' or 'cite_query_builder' to get citation HTML anchors (e.g., <a href="...">[Source]</a>)
+5) Use 'explain' as your FINAL output with:
+   - title: A descriptive title
+   - answer: Your complete response with embedded citation links (the <a> tags from step 4)
+   - steps: The verification steps so users can re-execute and verify
+
+The 'explain' tool creates an interactive page where users see your answer with clickable citations, plus they can re-run each step to verify your reasoning.
+
+CITATION FORMAT: cite_xxx tools return HTML anchor tags like <a href="...">[Source]</a>. Embed these directly in your answer text.
 `,
     }
   );
@@ -50,6 +55,16 @@ When to use 'fact' vs 'query_builder':
   const inspectionService = new InspectionService(queryService, sparqlEndpoint, embeddingService);
   const tripleService = new TripleService(queryService, sparqlEndpoint);
   const queryBuilderService = new QueryBuilderService(queryService, sparqlEndpoint, searchService.getQueryParser());
+
+  // Create ExplanationService - it registers itself with the database
+  const explanationService = new ExplanationService(
+    explanationDb,
+    searchService,
+    inspectionService,
+    tripleService,
+    queryBuilderService,
+    sparqlEndpoint
+  );
 
   server.registerTool(
     "query",
@@ -189,7 +204,7 @@ When to use 'fact' vs 'query_builder':
     "cite_fact",
     {
       description:
-        "Generate a citation link for a verified fact. Use this tool AFTER you have verified a triple with 'fact' to provide a reference link. It works exactly like 'fact' but returns a citation URL instead of the triples.",
+        "Generate a citation link for a verified fact. Use this AFTER verifying with 'fact'. Returns an HTML anchor tag you can embed directly in your answer.",
       inputSchema: FactInputSchema,
     },
     async (request: FactRequest, extra: any) => {
@@ -217,7 +232,7 @@ When to use 'fact' vs 'query_builder':
         content: [
           {
             type: "text",
-            text: `Citation link generated: [Source](${citationLink})\nThis link contains the triples matching the pattern. Use this to assert a claim. Do not try to read this link. It is for the USER only.`,
+            text: `Citation ID: ${citationId}\nEmbed this in your answer: <a href="${citationLink}" target="_blank">[Source]</a>\n\nUse this HTML anchor tag in your answer text to cite this fact.`,
           },
         ],
       };
@@ -286,7 +301,7 @@ When to use 'fact' vs 'query_builder':
     "cite_query_builder",
     {
       description:
-        "Generate a citation link for a query_builder query. Use this tool AFTER you have successfully executed a query with 'query_builder' to provide a reference link for the user. It works *exactly* like query_builder but returns a citation URL instead of data.",
+        "Generate a citation link for a query_builder query. Use this AFTER executing with 'query_builder'. Returns an HTML anchor tag you can embed directly in your answer.",
       inputSchema: QueryBuilderInputSchema,
     },
     async (
@@ -348,7 +363,7 @@ When to use 'fact' vs 'query_builder':
           content: [
             {
               type: "text",
-              text: `Citation link generated: [Source](${citationLink})\nThis link contains the query results. Use this to assert claims about the data. Do not try to read this link. It is for the USER only.`,
+              text: `Citation ID: ${citationId}\nEmbed this in your answer: <a href="${citationLink}" target="_blank">[Source]</a>\n\nUse this HTML anchor tag in your answer text to cite this query result.`,
             },
           ],
         };
@@ -520,6 +535,126 @@ When to use 'fact' vs 'query_builder':
             createdAt: c.createdAt
           };
         }
+      }));
+
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(responseData, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // Register the explain tool for creating reproducible explanations
+  server.registerTool(
+    "explain",
+    {
+      description:
+        "Create an interactive explanation page with your answer and the steps you took. This is your FINAL output for complex questions. The 'answer' field contains your response with embedded citation links (from cite_xxx tools). The 'steps' field shows how you arrived at the answer, so users can verify it.",
+      inputSchema: {
+        title: z
+          .string()
+          .describe("A descriptive title for this explanation (e.g., 'Finding papers by Martin Gaedke')"),
+        answer: z
+          .string()
+          .describe("Your complete answer to the user's question, with embedded citation links using <a href='...'>[Source]</a> tags from cite_fact or cite_query_builder"),
+        steps: z
+          .array(
+            z.object({
+              description: z
+                .string()
+                .describe("Human-readable description of what this step does (e.g., 'Search for the author')"),
+              toolName: z
+                .enum(["search", "inspect", "fact", "query_builder"])
+                .describe("The tool that was used for this step"),
+              toolParams: z
+                .record(z.any())
+                .describe("The parameters to re-execute this step (same as you used originally)"),
+            })
+          )
+          .describe("The ordered list of verification steps that led to your answer"),
+      },
+    },
+    async (
+      request: {
+        title: string;
+        answer: string;
+        steps: Array<{
+          description: string;
+          toolName: "search" | "inspect" | "fact" | "query_builder";
+          toolParams: Record<string, any>;
+        }>;
+      },
+      extra: any
+    ) => {
+      const { title, answer, steps } = request;
+      const sessionId = extra?.sessionId;
+
+      if (!sessionId) {
+        return {
+          content: [{ type: "text", text: "Error: No session ID available for explanation." }],
+        };
+      }
+
+      if (!answer) {
+        return {
+          content: [{ type: "text", text: "Error: An answer is required." }],
+        };
+      }
+
+      if (!steps || steps.length === 0) {
+        return {
+          content: [{ type: "text", text: "Error: At least one step is required." }],
+        };
+      }
+
+      const explanationId = explanationService.storeExplanation(sessionId, title, answer, steps);
+      const explanationLink = `${explainBase}/${explanationId}`;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Explanation created: [View Interactive Explanation](${explanationLink})\n\nThis page shows your answer with citations and the ${steps.length} verification steps.`,
+          },
+        ],
+      };
+    }
+  );
+
+  // Register MCP resource for explanations
+  server.registerResource(
+    "explanation",
+    "explanation://session",
+    {
+      mimeType: "application/json",
+      title: "Session Explanations",
+      description: "Get all explanations for the current session as a JSON list.",
+    },
+    async (uri, extra: any) => {
+      const sessionId = extra?.sessionId;
+      if (!sessionId) {
+        throw new Error("No session ID available for explanation lookup.");
+      }
+
+      const explanations = explanationDb.getExplanationsForSession(sessionId);
+
+      const responseData = explanations.map((e: any) => ({
+        id: e.id,
+        sessionId: e.sessionId,
+        title: e.title,
+        answer: e.answer,
+        stepCount: e.steps.length,
+        steps: e.steps.map((s: any) => ({
+          description: s.description,
+          toolName: s.toolName,
+        })),
+        createdAt: e.createdAt,
+        url: `${explainBase}/${e.id}`,
       }));
 
       return {
