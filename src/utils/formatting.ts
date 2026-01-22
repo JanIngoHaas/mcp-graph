@@ -8,267 +8,267 @@ import { formatLocalName, getReadableName, formatSparqlValue, resolveLabel, enri
  * Escapes HTML special characters
  */
 export function escapeHTML(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 /**
  * Renders an RDF Term as HTML with clickable links for NamedNodes
  */
 export function renderTermHTML(term: any): string {
-  if (term.termType === "NamedNode") {
-    const label = escapeHTML(term.value);
-    return `<a href="${term.value}" target="_blank">${label}</a>`;
-  } else if (term.termType === "Literal") {
-    let label = `"${escapeHTML(term.value)}"`;
-    if (term.language) {
-      label += `<span style="color: gray">@${escapeHTML(term.language)}</span>`;
-    } else if (term.datatype && term.datatype.value !== "http://www.w3.org/2001/XMLSchema#string") {
-      const datatype = escapeHTML(term.datatype.value);
-      label += ` <small title="${datatype}" style="color: gray">^^${datatype.split(/[#/]/).pop()}</small>`;
+    if (term.termType === "NamedNode") {
+        const label = escapeHTML(term.value);
+        return `<a href="${term.value}" target="_blank">${label}</a>`;
+    } else if (term.termType === "Literal") {
+        let label = `"${escapeHTML(term.value)}"`;
+        if (term.language) {
+            label += `<span style="color: gray">@${escapeHTML(term.language)}</span>`;
+        } else if (term.datatype && term.datatype.value !== "http://www.w3.org/2001/XMLSchema#string") {
+            const datatype = escapeHTML(term.datatype.value);
+            label += ` <small title="${datatype}" style="color: gray">^^${datatype.split(/[#/]/).pop()}</small>`;
+        }
+        return label;
     }
-    return label;
-  }
-  return escapeHTML(term.value);
+    return escapeHTML(term.value);
 }
 
 /**
  * Generates a Markdown table from Quads
  */
 export function formatQuadsToMarkdown(quads: Quad[], compressed: boolean): string {
-  if (quads.length === 0) return "No triples found.";
+    if (quads.length === 0) return "No triples found.";
 
-  const prefixManager = PrefixManager.getInstance();
+    const prefixManager = PrefixManager.getInstance();
 
-  // 1. Organize data
-  const entityData = new Map<string, Map<string, Set<string>>>();
-  const entityTypes = new Map<string, Set<string>>();
+    // 1. Organize data
+    const entityData = new Map<string, Map<string, Set<string>>>();
+    const entityTypes = new Map<string, Set<string>>();
 
-  quads.forEach(quad => {
-    const s = quad.subject.value;
-    const p = quad.predicate.value;
-    const o = quad.object.value;
+    quads.forEach(quad => {
+        const s = quad.subject.value;
+        const p = quad.predicate.value;
+        const o = quad.object.value;
 
-    // Store Entity Properties
-    if (!entityData.has(s)) entityData.set(s, new Map());
-    const props = entityData.get(s)!;
-    if (!props.has(p)) props.set(p, new Set());
-    // Escape pipes for Markdown table cells
-    props.get(p)!.add(o.replace(/\|/g, '\\|'));
-
-    // Store Types
-    if (p === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') {
-      if (!entityTypes.has(s)) entityTypes.set(s, new Set());
-      entityTypes.get(s)!.add(o);
-    }
-  });
-
-  // 2. Group subjects by Type
-  const typeGroups = new Map<string, Set<string>>(); // Type -> Set<Subject>
-  const uncategorized = new Set<string>();
-
-  for (const s of entityData.keys()) {
-    const types = entityTypes.get(s);
-    if (types && types.size > 0) {
-      types.forEach(t => {
-        if (!typeGroups.has(t)) typeGroups.set(t, new Set());
-        typeGroups.get(t)!.add(s);
-      });
-    } else {
-      uncategorized.add(s);
-    }
-  }
-
-  // 3. Build Markdown
-  let md = `found ${quads.length} triples\n\n`;
-
-  const generateTable = (typeName: string, subjects: Set<string>) => {
-    // Collect all predicates for these subjects to define columns
-    const predicates = new Set<string>();
-    subjects.forEach(s => {
-      const props = entityData.get(s)!;
-      for (const p of props.keys()) {
-        predicates.add(p);
-      }
-    });
-
-    // Sort predicates for consistent column order
-    const sortedPredicates = Array.from(predicates).sort();
-
-    // Header
-    let table = `<details><summary>Type: <a href="${typeName}">${formatLocalName(typeName)}</a></summary>\n\n`;
-    table += `| Entity | ${sortedPredicates.map(p => formatLocalName(p)).join(' | ')} |\n`; // Format headers nicely
-    table += `|---|${sortedPredicates.map(() => '---').join('|')}|\n`;
-
-    // Rows
-    subjects.forEach(s => {
-      let row = `| ${s} |`; // Subject URI
-
-      for (const p of sortedPredicates) {
+        // Store Entity Properties
+        if (!entityData.has(s)) entityData.set(s, new Map());
         const props = entityData.get(s)!;
-        const values = props.get(p);
-        const cellContent = values ? Array.from(values).join(', ') : '';
-        row += ` ${cellContent} |`;
-      }
-      table += row + '\n';
+        if (!props.has(p)) props.set(p, new Set());
+        // Escape pipes for Markdown table cells
+        props.get(p)!.add(o.replace(/\|/g, '\\|'));
+
+        // Store Types
+        if (p === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') {
+            if (!entityTypes.has(s)) entityTypes.set(s, new Set());
+            entityTypes.get(s)!.add(o);
+        }
     });
-    table += '\n';
-    table += '</details>\n\n';
-    return table;
-  };
 
-  // Iterate groups (sort by type name for consistency)
-  const sortedTypes = Array.from(typeGroups.keys()).sort();
-  for (const typeUri of sortedTypes) {
-    md += generateTable(typeUri, typeGroups.get(typeUri)!);
-  }
+    // 2. Group subjects by Type
+    const typeGroups = new Map<string, Set<string>>(); // Type -> Set<Subject>
+    const uncategorized = new Set<string>();
 
-  if (uncategorized.size > 0) {
-    md += generateTable("Uncategorized", uncategorized);
-  }
+    for (const s of entityData.keys()) {
+        const types = entityTypes.get(s);
+        if (types && types.size > 0) {
+            types.forEach(t => {
+                if (!typeGroups.has(t)) typeGroups.set(t, new Set());
+                typeGroups.get(t)!.add(s);
+            });
+        } else {
+            uncategorized.add(s);
+        }
+    }
 
-  if (compressed) {
-    // Model view: use prefixes to save tokens
-    return prefixManager.compressTextWithPrefixes(md, true);
-  } else {
-    // User view: use beautiful [Label](Link) formatting
-    return enrichTextWithLinks(md);
-  }
+    // 3. Build Markdown
+    let md = `found ${quads.length} triples\n\n`;
+
+    const generateTable = (typeName: string, subjects: Set<string>) => {
+        // Collect all predicates for these subjects to define columns
+        const predicates = new Set<string>();
+        subjects.forEach(s => {
+            const props = entityData.get(s)!;
+            for (const p of props.keys()) {
+                predicates.add(p);
+            }
+        });
+
+        // Sort predicates for consistent column order
+        const sortedPredicates = Array.from(predicates).sort();
+
+        // Header
+        let table = `<details><summary>Type: <a href="${typeName}">${formatLocalName(typeName)}</a></summary>\n\n`;
+        table += `| Entity | ${sortedPredicates.map(p => formatLocalName(p)).join(' | ')} |\n`; // Format headers nicely
+        table += `|---|${sortedPredicates.map(() => '---').join('|')}|\n`;
+
+        // Rows
+        subjects.forEach(s => {
+            let row = `| ${s} |`; // Subject URI
+
+            for (const p of sortedPredicates) {
+                const props = entityData.get(s)!;
+                const values = props.get(p);
+                const cellContent = values ? Array.from(values).join(', ') : '';
+                row += ` ${cellContent} |`;
+            }
+            table += row + '\n';
+        });
+        table += '\n';
+        table += '</details>\n\n';
+        return table;
+    };
+
+    // Iterate groups (sort by type name for consistency)
+    const sortedTypes = Array.from(typeGroups.keys()).sort();
+    for (const typeUri of sortedTypes) {
+        md += generateTable(typeUri, typeGroups.get(typeUri)!);
+    }
+
+    if (uncategorized.size > 0) {
+        md += generateTable("Uncategorized", uncategorized);
+    }
+
+    if (compressed) {
+        // Model view: use prefixes to save tokens
+        return prefixManager.compressTextWithPrefixes(md, true);
+    } else {
+        // User view: use beautiful [Label](Link) formatting
+        return enrichTextWithLinks(md);
+    }
 }
 
 /**
  * Generates regular TTL from Quads
  */
 export async function formatQuadsToTtl(quads: Quad[]): Promise<string> {
-  const prefixManager = PrefixManager.getInstance();
-  const writer = new Writer({ prefixes: prefixManager.getPrefixMap() });
-  writer.addQuads(quads);
+    const prefixManager = PrefixManager.getInstance();
+    const writer = new Writer({ prefixes: prefixManager.getPrefixMap() });
+    writer.addQuads(quads);
 
-  return new Promise<string>((resolve, reject) => {
-    writer.end((err, result) => {
-      if (err) reject(err);
-      else resolve(result);
+    return new Promise<string>((resolve, reject) => {
+        writer.end((err, result) => {
+            if (err) reject(err);
+            else resolve(result);
+        });
     });
-  });
 }
 
 /**
  * Converts quads to Cytoscape-compatible graph data with proper type classification
  */
 function quadsToGraphData(quads: Quad[]): { nodes: any[], edges: any[] } {
-  const nodesMap = new Map<string, any>();
-  const edges: any[] = [];
-  const classNodes = new Set<string>(); // Track nodes that are used as classes (objects of rdf:type)
+    const nodesMap = new Map<string, any>();
+    const edges: any[] = [];
+    const classNodes = new Set<string>(); // Track nodes that are used as classes (objects of rdf:type)
 
-  // First pass: identify class nodes
-  quads.forEach(quad => {
-    const predicateUri = quad.predicate.value;
-    if (predicateUri === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') {
-      classNodes.add(quad.object.value);
-    }
-  });
-
-  quads.forEach((quad, idx) => {
-    const subjectId = quad.subject.value;
-    const objectId = quad.object.value;
-    const predicateUri = quad.predicate.value;
-    const predicateLabel = predicateUri.split(/[#/]/).pop() || predicateUri;
-
-    // Determine edge type
-    const isTypeEdge = predicateUri === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
-    const isLiteralTarget = quad.object.termType === 'Literal';
-    const edgeType = isTypeEdge ? 'type' : (isLiteralTarget ? 'dataProperty' : 'objectProperty');
-
-    // Add subject node
-    if (!nodesMap.has(subjectId)) {
-      const label = subjectId.split(/[#/]/).pop() || subjectId;
-      nodesMap.set(subjectId, {
-        data: {
-          id: subjectId,
-          label: label,
-          fullLabel: label,
-          uri: subjectId,
-          nodeType: 'instance' // Regular instance node
+    // First pass: identify class nodes
+    quads.forEach(quad => {
+        const predicateUri = quad.predicate.value;
+        if (predicateUri === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') {
+            classNodes.add(quad.object.value);
         }
-      });
-    }
-
-    // Add object node (could be class, instance, or literal)
-    if (!nodesMap.has(objectId)) {
-      const isLiteral = quad.object.termType === 'Literal';
-      const isClass = classNodes.has(objectId);
-      const label = isLiteral ? quad.object.value : (objectId.split(/[#/]/).pop() || objectId);
-
-      let nodeType: string;
-      if (isLiteral) {
-        nodeType = 'literal';
-      } else if (isClass) {
-        nodeType = 'class';
-      } else {
-        nodeType = 'instance';
-      }
-
-      nodesMap.set(objectId, {
-        data: {
-          id: objectId,
-          label: label,
-          fullLabel: label,
-          uri: isLiteral ? null : objectId,
-          nodeType: nodeType
-        }
-      });
-    }
-
-    // Add edge with type classification
-    edges.push({
-      data: {
-        id: `edge-${idx}`,
-        source: subjectId,
-        target: objectId,
-        label: predicateLabel,
-        fullLabel: predicateUri,
-        edgeType: edgeType
-      }
     });
-  });
 
-  return {
-    nodes: Array.from(nodesMap.values()),
-    edges
-  };
+    quads.forEach((quad, idx) => {
+        const subjectId = quad.subject.value;
+        const objectId = quad.object.value;
+        const predicateUri = quad.predicate.value;
+        const predicateLabel = predicateUri.split(/[#/]/).pop() || predicateUri;
+
+        // Determine edge type
+        const isTypeEdge = predicateUri === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+        const isLiteralTarget = quad.object.termType === 'Literal';
+        const edgeType = isTypeEdge ? 'type' : (isLiteralTarget ? 'dataProperty' : 'objectProperty');
+
+        // Add subject node
+        if (!nodesMap.has(subjectId)) {
+            const label = subjectId.split(/[#/]/).pop() || subjectId;
+            nodesMap.set(subjectId, {
+                data: {
+                    id: subjectId,
+                    label: label,
+                    fullLabel: label,
+                    uri: subjectId,
+                    nodeType: 'instance' // Regular instance node
+                }
+            });
+        }
+
+        // Add object node (could be class, instance, or literal)
+        if (!nodesMap.has(objectId)) {
+            const isLiteral = quad.object.termType === 'Literal';
+            const isClass = classNodes.has(objectId);
+            const label = isLiteral ? quad.object.value : (objectId.split(/[#/]/).pop() || objectId);
+
+            let nodeType: string;
+            if (isLiteral) {
+                nodeType = 'literal';
+            } else if (isClass) {
+                nodeType = 'class';
+            } else {
+                nodeType = 'instance';
+            }
+
+            nodesMap.set(objectId, {
+                data: {
+                    id: objectId,
+                    label: label,
+                    fullLabel: label,
+                    uri: isLiteral ? null : objectId,
+                    nodeType: nodeType
+                }
+            });
+        }
+
+        // Add edge with type classification
+        edges.push({
+            data: {
+                id: `edge-${idx}`,
+                source: subjectId,
+                target: objectId,
+                label: predicateLabel,
+                fullLabel: predicateUri,
+                edgeType: edgeType
+            }
+        });
+    });
+
+    return {
+        nodes: Array.from(nodesMap.values()),
+        edges
+    };
 }
 
 /**
  * Generates the full Citation HTML Page with Graph Visualization
  */
 export async function generateCitationHtml(quads: Quad[], citationId: string, options?: { title?: string, description?: string }): Promise<string> {
-  const title = options?.title || "Knowledge Graph Citation";
+    const title = options?.title || "Knowledge Graph Citation";
 
-  // Generate TTL for the raw view
-  const ttl = await formatQuadsToTtl(quads);
+    // Generate TTL for the raw view
+    const ttl = await formatQuadsToTtl(quads);
 
-  // Generate graph data for Cytoscape
-  const graphData = quadsToGraphData(quads);
-  const graphDataJson = JSON.stringify(graphData);
+    // Generate graph data for Cytoscape
+    const graphData = quadsToGraphData(quads);
+    const graphDataJson = JSON.stringify(graphData);
 
-  // Generate Markdown and render to HTML
-  const markdown = formatQuadsToMarkdown(quads, false);
-  const markdownHtml = await marked.parse(markdown);
+    // Generate Markdown and render to HTML
+    const markdown = formatQuadsToMarkdown(quads, false);
+    const markdownHtml = await marked.parse(markdown);
 
-  let descriptionHtml = '';
-  if (options?.description) {
-    const descriptionRendered = await marked.parse(options.description);
-    descriptionHtml = `
+    let descriptionHtml = '';
+    if (options?.description) {
+        const descriptionRendered = await marked.parse(options.description);
+        descriptionHtml = `
     <div class="description">
         ${descriptionRendered}
     </div>`;
-  }
+    }
 
-  return `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html>
 <head>
     <title>${title} - ${citationId}</title>
@@ -934,4 +934,393 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
     </script>
 </body>
 </html>`;
+}
+
+import { Explanation, ExplanationStep } from "./ExplanationDatabase.js";
+
+/**
+ * Generates an interactive Explanation HTML Page with reproducible steps
+ */
+export function generateExplanationHtml(
+    explanation: Explanation,
+    baseUrl: string
+): string {
+    const stepsHtml = explanation.steps
+        .map((step, index) => generateStepHtml(step, index, explanation.id, baseUrl))
+        .join("\n");
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+    <title>Explanation: ${escapeHTML(explanation.title)}</title>
+    <style>
+        :root {
+            --primary: #0066cc;
+            --primary-light: #e6f0ff;
+            --success: #28a745;
+            --success-light: #d4edda;
+            --bg: #ffffff;
+            --bg-secondary: #f7f7f7;
+            --text: #333333;
+            --text-muted: #666666;
+            --border: #e0e0e0;
+            --shadow: rgba(0,0,0,0.1);
+        }
+        
+        * { box-sizing: border-box; }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            padding: 20px; 
+            line-height: 1.6; 
+            color: var(--text); 
+            max-width: 900px; 
+            margin: 0 auto; 
+            background: var(--bg);
+        }
+        
+        h1 { 
+            margin-bottom: 10px; 
+            font-size: 1.8em;
+            color: var(--primary);
+        }
+        
+        .meta { 
+            color: var(--text-muted); 
+            margin-bottom: 30px; 
+            font-size: 14px; 
+        }
+        
+        .intro {
+            background: var(--primary-light);
+            border: 2px solid var(--primary);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 30px;
+        }
+        
+        .intro h2 {
+            margin: 0 0 8px 0;
+            font-size: 1.1em;
+            color: var(--primary);
+        }
+        
+        .intro p {
+            margin: 0;
+            font-size: 14px;
+        }
+        
+        .answer-section {
+            background: white;
+            border: 2px solid var(--success);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px var(--shadow);
+        }
+        
+        .answer-section h2 {
+            margin: 0 0 16px 0;
+            font-size: 1.2em;
+            color: var(--success);
+        }
+        
+        .answer-content {
+            font-size: 15px;
+            line-height: 1.8;
+        }
+        
+        .answer-content a {
+            color: var(--primary);
+            text-decoration: none;
+            background: var(--primary-light);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        
+        .answer-content a:hover {
+            text-decoration: underline;
+        }
+        
+        .steps {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .step {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px var(--shadow);
+            position: relative;
+        }
+        
+        .step-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+        
+        .step-number {
+            background: var(--primary);
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        
+        .step-content {
+            flex: 1;
+        }
+        
+        .step-description {
+            font-weight: 600;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        
+        .step-tool {
+            display: inline-block;
+            background: var(--bg-secondary);
+            color: var(--text-muted);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+        
+        .citation-link {
+            display: inline-block;
+            margin-left: 12px;
+            font-size: 12px;
+            color: var(--success);
+            text-decoration: none;
+            padding: 2px 8px;
+            background: var(--success-light);
+            border-radius: 4px;
+        }
+        
+        .citation-link:hover {
+            text-decoration: underline;
+        }
+        
+        .step-params {
+            margin-top: 12px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            padding: 12px;
+            font-size: 13px;
+            font-family: monospace;
+            overflow-x: auto;
+        }
+        
+        .step-params summary {
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+        
+        .execute-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 12px;
+            transition: all 0.2s;
+        }
+        
+        .execute-btn:hover {
+            background: #0052a3;
+        }
+        
+        .execute-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .execute-btn.loading::after {
+            content: " ⏳";
+        }
+        
+        .step-result {
+            margin-top: 16px;
+            border-top: 1px solid var(--border);
+            padding-top: 16px;
+            display: none;
+        }
+        
+        .step-result.visible {
+            display: block;
+        }
+        
+        .step-result h4 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            color: var(--success);
+        }
+        
+        .step-result pre {
+            background: var(--bg-secondary);
+            padding: 12px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        
+        .step-result.error h4 {
+            color: #dc3545;
+        }
+        
+        .step-result.error pre {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .connector {
+            width: 2px;
+            height: 20px;
+            background: var(--border);
+            margin-left: 35px;
+        }
+        
+        footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 ${escapeHTML(explanation.title)}</h1>
+    <div class="meta">
+        Explanation ID: <code>${explanation.id}</code> • 
+        Steps: ${explanation.steps.length} • 
+        Created: ${explanation.createdAt.toLocaleString()}
+    </div>
+    
+    <div class="answer-section">
+        <h2>📝 Answer</h2>
+        <div class="answer-content">
+            ${explanation.answer}
+        </div>
+    </div>
+    
+    <div class="intro">
+        <h2>🔬 Verification Steps</h2>
+        <p>
+            Below are the steps the AI took to arrive at this answer. 
+            Click <strong>"▶ Execute Step"</strong> on any step to re-run it and see the actual results from the knowledge graph.
+            This allows you to verify (nachvollziehen) what the AI did.
+        </p>
+    </div>
+    
+    <div class="steps">
+        ${stepsHtml}
+    </div>
+    
+    <footer>
+        Generated by MCP Knowledge Graph Server • 
+        <a href="${baseUrl}">Back to server</a>
+    </footer>
+    
+    <script>
+        async function executeStep(explanationId, stepIndex, button) {
+            const stepEl = button.closest('.step');
+            const resultEl = stepEl.querySelector('.step-result');
+            const resultContent = resultEl.querySelector('pre');
+            const resultHeader = resultEl.querySelector('h4');
+            
+            button.disabled = true;
+            button.classList.add('loading');
+            button.textContent = 'Executing...';
+            
+            try {
+                const response = await fetch(\`${baseUrl}/explain/\${explanationId}/execute/\${stepIndex}\`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultHeader.textContent = '✓ Result:';
+                    resultContent.textContent = data.result;
+                    resultEl.classList.remove('error');
+                } else {
+                    resultHeader.textContent = '✗ Error:';
+                    resultContent.textContent = data.error;
+                    resultEl.classList.add('error');
+                }
+                
+                resultEl.classList.add('visible');
+            } catch (error) {
+                resultHeader.textContent = '✗ Error:';
+                resultContent.textContent = error.message;
+                resultEl.classList.add('error');
+                resultEl.classList.add('visible');
+            } finally {
+                button.disabled = false;
+                button.classList.remove('loading');
+                button.textContent = '▶ Execute Step';
+            }
+        }
+    </script>
+</body>
+</html>`;
+}
+
+/**
+ * Generates HTML for a single explanation step
+ */
+function generateStepHtml(
+    step: ExplanationStep,
+    index: number,
+    explanationId: string,
+    baseUrl: string
+): string {
+    const paramsJson = JSON.stringify(step.toolParams, null, 2);
+
+    return `
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">${index + 1}</div>
+                <div class="step-content">
+                    <div class="step-description">${escapeHTML(step.description)}</div>
+                    <span class="step-tool">${step.toolName}</span>
+                </div>
+            </div>
+            
+            <details class="step-params">
+                <summary>View parameters</summary>
+                <pre>${escapeHTML(paramsJson)}</pre>
+            </details>
+            
+            <button class="execute-btn" onclick="executeStep('${explanationId}', ${index}, this)">
+                ▶ Execute Step
+            </button>
+            
+            <div class="step-result">
+                <h4>Result:</h4>
+                <pre></pre>
+            </div>
+        </div>`;
 }

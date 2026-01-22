@@ -7,7 +7,8 @@ import { randomUUID } from "crypto";
 import { createServer } from "./server.js";
 import Logger from "./utils/logger.js";
 import { CitationDatabase } from "./utils/CitationDatabase.js";
-import { generateCitationHtml } from "./utils/formatting.js";
+import { ExplanationDatabase } from "./utils/ExplanationDatabase.js";
+import { generateCitationHtml, generateExplanationHtml } from "./utils/formatting.js";
 import type { Quad } from "@rdfjs/types";
 
 async function main() {
@@ -19,8 +20,9 @@ async function main() {
     const port = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT) : 3000;
     const publicUrl: string = process.env.PUBLIC_URL || `http://localhost:${port}`;
 
-    // Create shared citation database
+    // Create shared databases
     const citationDb = new CitationDatabase();
+    const explanationDb = new ExplanationDatabase();
 
     // Validate sparqlEndpoint is provided
     if (!sparqlEndpoint) {
@@ -86,8 +88,9 @@ async function main() {
                     if (sid && transports[sid]) {
                         Logger.info(`Transport closed for session ${sid}`);
                         delete transports[sid];
-                        // Clean up citations for this session
+                        // Clean up citations and explanations for this session
                         citationDb.cleanupSession(sid);
+                        explanationDb.cleanupSession(sid);
                     }
                 };
 
@@ -97,7 +100,8 @@ async function main() {
                     endpointEngine.toLowerCase(),
                     sparqlToken,
                     publicUrl,
-                    citationDb
+                    citationDb,
+                    explanationDb
                 );
 
                 // Connect the transport to the server
@@ -208,6 +212,49 @@ async function main() {
         } catch (e) {
             Logger.error("Error generating citation HTML", { error: e });
             res.status(500).send("Error generating citation page");
+        }
+    });
+
+    // Explanation endpoint - returns the interactive explanation page
+    app.get("/explain/:explanationId", async (req: Request, res: Response) => {
+        const explanationId = req.params.explanationId as string;
+        const explanation = explanationDb.getExplanation(explanationId);
+
+        if (!explanation) {
+            res.status(404).send("Explanation not found");
+            return;
+        }
+
+        try {
+            const html = generateExplanationHtml(explanation, publicUrl);
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            res.send(html);
+        } catch (e) {
+            Logger.error("Error generating explanation HTML", { error: e });
+            res.status(500).send("Error generating explanation page");
+        }
+    });
+
+    // Explanation step execution endpoint - re-executes a specific step
+    app.post("/explain/:explanationId/execute/:stepIndex", async (req: Request, res: Response) => {
+        const explanationId = req.params.explanationId as string;
+        const stepIndexStr = req.params.stepIndex as string;
+        const stepIndex = parseInt(stepIndexStr, 10);
+
+        if (isNaN(stepIndex)) {
+            res.status(400).json({ success: false, error: "Invalid step index" });
+            return;
+        }
+
+        try {
+            const result = await explanationDb.executeStep(explanationId, stepIndex);
+            res.json(result);
+        } catch (e) {
+            Logger.error("Error executing explanation step", { error: e });
+            res.status(500).json({
+                success: false,
+                error: e instanceof Error ? e.message : "Error executing step"
+            });
         }
     });
 
