@@ -2,6 +2,7 @@ import { QueryEngine } from "@comunica/query-sparql";
 import { QueryStringContext } from "@comunica/types";
 import { PrefixManager } from "../utils/PrefixManager.js";
 import type { Quad } from "@rdfjs/types";
+import { generateMarkdownTable } from "../utils/formatting/index.js";
 
 function addDistinctToQuery(query: string): string {
   // Use regex to find SELECT statements and add DISTINCT if not already present
@@ -115,11 +116,7 @@ export class QueryService {
     });
 
     // Format as markdown table
-    const headerRow = `| ${headers.join(' | ')} |`;
-    const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
-    const dataRows = rows.map(row => `| ${row.join(' | ')} |`);
-
-    let resultTable = [headerRow, separatorRow, ...dataRows].join('\n');
+    let resultTable = generateMarkdownTable(headers, rows);
 
     // Add truncation notice if results were limited
     if (wasTruncated) {

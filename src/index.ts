@@ -8,7 +8,7 @@ import { createServer } from "./server.js";
 import Logger from "./utils/logger.js";
 import { CitationDatabase } from "./utils/CitationDatabase.js";
 import { ExplanationDatabase } from "./utils/ExplanationDatabase.js";
-import { generateCitationHtml, generateExplanationHtml } from "./utils/formatting.js";
+import { generateCitationHtml, generateExplanationHtml } from "./utils/formatting/index.js";
 import type { Quad } from "@rdfjs/types";
 
 async function main() {

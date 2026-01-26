@@ -1,7 +1,7 @@
 import { QueryService } from "./QueryService";
-import { ResourceResult } from "../types";
+import { ResourceResult } from "../types/index.js";
 import { QueryParserService, FallbackBackend, QLeverBackend } from "../utils/queryParser.js";
-import { PrefixManager } from "../utils/PrefixManager.js";
+
 
 export class SearchService {
   private queryService: QueryService;
@@ -70,30 +70,5 @@ export class SearchService {
       .filter((result) => result.uri); // Filter out empty URIs
   }
 
-  public renderResourceResult(results: ResourceResult[]): string {
-    if (results.length === 0) {
-      return "No entities found matching your search query. Try different keywords or check if the entities exist in the knowledge graph.";
-    }
 
-    let response = `## Found ${results.length} entities\n\n`;
-    response += "| URI | Property | Matching Text |\n";
-    response += "|-----|----------|---------------|\n";
-    const TEXT_LENTH_LIMIT = 1024;
-    results.forEach((result: ResourceResult) => {
-      const uri = result.uri.replace(/\|/g, "\\|");
-      const textProp = (result.textProp || "").replace(/\|/g, "\\|");
-      const searchText = result.searchText
-        ? (result.searchText.length > TEXT_LENTH_LIMIT
-          ? result.searchText.substring(0, 255) + "..."
-          : result.searchText).replace(/\|/g, "\\|").replace(/\n/g, " ")
-        : "";
-
-      response += `| ${uri} | ${textProp} | ${searchText} |\n`;
-    });
-
-    response += "\n*Use `inspect` tool with any URI above for detailed information*";
-    const prefixManager = PrefixManager.getInstance();
-    response = prefixManager.compressTextWithPrefixes(response);
-    return response;
-  }
 }

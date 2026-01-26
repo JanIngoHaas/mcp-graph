@@ -1,5 +1,5 @@
 import { Quad } from "@rdfjs/types";
-import { QueryBuilderResult } from "../services/QueryBuilderService";
+import { QueryBuilderResult } from "../types/index.js";
 
 /**
  * Citation for RDF triples

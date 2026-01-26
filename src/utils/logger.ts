@@ -85,7 +85,7 @@ class Logger {
               winston.format.timestamp(),
               winston.format.errors({ stack: true }),
               winston.format.printf(({ timestamp, level, message, ...meta }) => {
-                let log = `${timestamp} [sparql-mcp] [${level}] ${message}`;
+                let log = `${timestamp} [kg-mcp] [${level}] ${message}`;
                 if (Object.keys(meta).length > 0) {
                   log += ` ${JSON.stringify(meta)}`;
                 }

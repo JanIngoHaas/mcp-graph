@@ -3,12 +3,13 @@ import { SearchService } from "./SearchService.js";
 import { InspectionService } from "./InspectionService.js";
 import { TripleService } from "./TripleService.js";
 import { QueryBuilderService } from "./QueryBuilderService.js";
-import {
-    ExplanationDatabase,
+import { ExplanationDatabase } from "../utils/ExplanationDatabase.js";
+import type {
     ExplanationStep,
     StepExecutionResult,
     StepExecutor
-} from "../utils/ExplanationDatabase.js";
+} from "../types/index.js";
+import { formatInspectionForUser, formatResourceResultForUser, formatTriplesForUser, formatQueryBuilderResultForUser } from "../utils/formatting/index.js";
 
 /**
  * Service for executing explanation steps.
@@ -84,16 +85,16 @@ export class ExplanationService implements StepExecutor {
                     params.limit || 20,
                     params.offset || 0
                 );
-                return this.searchService.renderResourceResult(results);
+                return formatResourceResultForUser(results);
             }
 
             case "inspect": {
-                return await this.inspectionService.inspect(
+                const result = await this.inspectionService.inspect(
                     params.uri,
-                    params.expandProperties || [],
-                    params.relevantToQuery || "",
-                    params.maxResults || 15
+                    params.expandProperties || []
                 );
+                // Use user-friendly formatting for explanation pages
+                return formatInspectionForUser(result);
             }
 
             case "fact": {
@@ -106,10 +107,8 @@ export class ExplanationService implements StepExecutor {
                 if (quads.length === 0) {
                     return "No matching triples found.";
                 }
-                // Format as simple text representation
-                return quads
-                    .map((q) => `${q.subject.value} → ${q.predicate.value} → ${q.object.value}`)
-                    .join("\n");
+                // Format as user-friendly text
+                return formatTriplesForUser(quads);
             }
 
             case "query_builder": {
@@ -125,10 +124,7 @@ export class ExplanationService implements StepExecutor {
                     project: params.project,
                     limit: params.limit,
                 });
-                return `${description}\n\nFound ${result.count} results:\n${result.quads
-                    .slice(0, 20)
-                    .map((q) => `${q.subject.value} → ${q.predicate.value} → ${q.object.value}`)
-                    .join("\n")}${result.count > 20 ? `\n... and ${result.count - 20} more` : ""}`;
+                return `${description}\n\n${formatQueryBuilderResultForUser(result)}`;
             }
 
             default:

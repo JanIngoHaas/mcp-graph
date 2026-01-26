@@ -36,5 +36,5 @@ AND = "AND" !WordChar _
 OR = "OR" !WordChar _
 
 WORD = !("AND" !WordChar / "OR" !WordChar) chars:WordChar+ { return chars.join(''); }
-WordChar = [^ \t\n\r"()]
+WordChar = [^ \t\n\r"]
 _ = [ \t\n\r]*

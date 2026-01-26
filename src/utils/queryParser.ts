@@ -48,16 +48,16 @@ export class FallbackBackend implements SearchBackend {
 
 export class QLeverBackend implements SearchBackend {
   generateWordsSearchPattern(words: string[], variable: string): string {
-    // Split phrases into individual words for QLever text search
     const allWords: string[] = [];
     words.forEach(word => {
-      // If word contains spaces, split it (for quoted phrases)
-      if (word.includes(' ')) {
-        allWords.push(...word.split(/\s+/).filter(w => w.length > 0));
-      } else {
-        allWords.push(word);
-      }
+      // Split on any non-alphanumeric character to match QLever's indexing
+      const parts = word.split(/[^a-zA-Z0-9]+/).filter(w => w.length > 0);
+      allWords.push(...parts);
     });
+
+    if (allWords.length === 0) {
+      return "";
+    }
 
     // Use anchor pattern for QLever text search
     const wordConditions = allWords.map(word =>

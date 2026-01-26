@@ -6,10 +6,11 @@ import { InspectionService } from "./services/InspectionService.js";
 import { TripleService } from "./services/TripleService.js";
 import { QueryBuilderService } from "./services/QueryBuilderService.js";
 import { ExplanationService } from "./services/ExplanationService.js";
-import { formatQuadsToMarkdown, formatQuadsToTtl } from "./utils/formatting.js";
+import { formatQuadsToMarkdown, formatQuadsToTtl, formatInspectionForAgent, formatResourceResultForAgent, formatTriplesForAgent, formatQueryBuilderResultForAgent } from "./utils/formatting/index.js";
 import { EmbeddingHelper } from "./services/EmbeddingHelper.js";
 import { CitationDatabase } from "./utils/CitationDatabase.js";
 import { ExplanationDatabase } from "./utils/ExplanationDatabase.js";
+import { Explanation, ExplanationStep } from "./types/index.js";
 
 function checkSession(extra: any): string {
   const sessionId = extra?.sessionId;
@@ -244,7 +245,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
         }
 
         // Format as Markdown for the model
-        const md = formatQuadsToMarkdown(result, true);
+        const md = formatTriplesForAgent(result);
 
         return {
           text: md,
@@ -330,7 +331,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
           });
 
           // Format result as markdown table
-          const markdown = formatQuadsToMarkdown(result.quads, true);
+          const markdown = formatQueryBuilderResultForAgent(result);
 
           // Generate description for citation
           const description = await queryBuilderService.generateDescription({
@@ -397,7 +398,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
           offset
         );
 
-        const response = searchService.renderResourceResult(results);
+        const response = formatResourceResultForAgent(results);
         return { text: response };
       });
     }
@@ -422,26 +423,12 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
           .describe(
             "Optional array of property URIs to expand and show all values for (only applies to entity inspection, by default only shows first few values)"
           ),
-        relevantToQuery: z
-          .string()
-          .describe(
-            "Query to filter and rank results by semantic relevance. Results will be ordered by similarity to this query."
-          ),
-        maxResults: z
-          .number()
-          .optional()
-          .default(15)
-          .describe(
-            "Maximum number of results to return per category (default: 15). Set to a high number like 1000 if you need to see all results."
-          ),
       },
     },
     async (
       request: {
         uri: string;
         expandProperties?: string[];
-        relevantToQuery: string;
-        maxResults?: number;
       },
       extra: any
     ) => {
@@ -449,19 +436,15 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
         const {
           uri,
           expandProperties = [],
-          relevantToQuery,
-          maxResults = 15,
         } = request;
 
         try {
           const result = await inspectionService.inspect(
             uri,
-            expandProperties,
-            relevantToQuery,
-            maxResults
+            expandProperties
           );
 
-          return { text: result };
+          return { text: formatInspectionForAgent(result) };
         } catch (error) {
           throw new Error(`Failed to inspect URI: ${error}`);
         }
@@ -637,15 +620,17 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
 
       const explanations = explanationDb.getExplanationsForSession(sessionId);
 
-      const responseData = explanations.map((e: any) => ({
+      const responseData = explanations.map((e: Explanation) => ({
         id: e.id,
         sessionId: e.sessionId,
         title: e.title,
         answer: e.answer,
         stepCount: e.steps.length,
-        steps: e.steps.map((s: any) => ({
+        steps: e.steps.map((s: ExplanationStep) => ({
           description: s.description,
           toolName: s.toolName,
+          toolParams: s.toolParams,
+          executionKey: s.executionKey,
         })),
         createdAt: e.createdAt,
         url: `${explainBase}/${e.id}`,

@@ -1,160 +1,10 @@
 import { Quad } from "@rdfjs/types";
-import { PrefixManager } from "./PrefixManager.js";
-import { Writer } from "n3";
 import { marked } from "marked";
-import { formatLocalName, getReadableName, formatSparqlValue, resolveLabel, enrichTextWithLinks } from "./uriUtils.js";
-
-/**
- * Escapes HTML special characters
- */
-export function escapeHTML(str: string): string {
-    return str
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-/**
- * Renders an RDF Term as HTML with clickable links for NamedNodes
- */
-export function renderTermHTML(term: any): string {
-    if (term.termType === "NamedNode") {
-        const label = escapeHTML(term.value);
-        return `<a href="${term.value}" target="_blank">${label}</a>`;
-    } else if (term.termType === "Literal") {
-        let label = `"${escapeHTML(term.value)}"`;
-        if (term.language) {
-            label += `<span style="color: gray">@${escapeHTML(term.language)}</span>`;
-        } else if (term.datatype && term.datatype.value !== "http://www.w3.org/2001/XMLSchema#string") {
-            const datatype = escapeHTML(term.datatype.value);
-            label += ` <small title="${datatype}" style="color: gray">^^${datatype.split(/[#/]/).pop()}</small>`;
-        }
-        return label;
-    }
-    return escapeHTML(term.value);
-}
-
-/**
- * Generates a Markdown table from Quads
- */
-export function formatQuadsToMarkdown(quads: Quad[], compressed: boolean): string {
-    if (quads.length === 0) return "No triples found.";
-
-    const prefixManager = PrefixManager.getInstance();
-
-    // 1. Organize data
-    const entityData = new Map<string, Map<string, Set<string>>>();
-    const entityTypes = new Map<string, Set<string>>();
-
-    quads.forEach(quad => {
-        const s = quad.subject.value;
-        const p = quad.predicate.value;
-        const o = quad.object.value;
-
-        // Store Entity Properties
-        if (!entityData.has(s)) entityData.set(s, new Map());
-        const props = entityData.get(s)!;
-        if (!props.has(p)) props.set(p, new Set());
-        // Escape pipes for Markdown table cells
-        props.get(p)!.add(o.replace(/\|/g, '\\|'));
-
-        // Store Types
-        if (p === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') {
-            if (!entityTypes.has(s)) entityTypes.set(s, new Set());
-            entityTypes.get(s)!.add(o);
-        }
-    });
-
-    // 2. Group subjects by Type
-    const typeGroups = new Map<string, Set<string>>(); // Type -> Set<Subject>
-    const uncategorized = new Set<string>();
-
-    for (const s of entityData.keys()) {
-        const types = entityTypes.get(s);
-        if (types && types.size > 0) {
-            types.forEach(t => {
-                if (!typeGroups.has(t)) typeGroups.set(t, new Set());
-                typeGroups.get(t)!.add(s);
-            });
-        } else {
-            uncategorized.add(s);
-        }
-    }
-
-    // 3. Build Markdown
-    let md = `found ${quads.length} triples\n\n`;
-
-    const generateTable = (typeName: string, subjects: Set<string>) => {
-        // Collect all predicates for these subjects to define columns
-        const predicates = new Set<string>();
-        subjects.forEach(s => {
-            const props = entityData.get(s)!;
-            for (const p of props.keys()) {
-                predicates.add(p);
-            }
-        });
-
-        // Sort predicates for consistent column order
-        const sortedPredicates = Array.from(predicates).sort();
-
-        // Header
-        let table = `<details><summary>Type: <a href="${typeName}">${formatLocalName(typeName)}</a></summary>\n\n`;
-        table += `| Entity | ${sortedPredicates.map(p => formatLocalName(p)).join(' | ')} |\n`; // Format headers nicely
-        table += `|---|${sortedPredicates.map(() => '---').join('|')}|\n`;
-
-        // Rows
-        subjects.forEach(s => {
-            let row = `| ${s} |`; // Subject URI
-
-            for (const p of sortedPredicates) {
-                const props = entityData.get(s)!;
-                const values = props.get(p);
-                const cellContent = values ? Array.from(values).join(', ') : '';
-                row += ` ${cellContent} |`;
-            }
-            table += row + '\n';
-        });
-        table += '\n';
-        table += '</details>\n\n';
-        return table;
-    };
-
-    // Iterate groups (sort by type name for consistency)
-    const sortedTypes = Array.from(typeGroups.keys()).sort();
-    for (const typeUri of sortedTypes) {
-        md += generateTable(typeUri, typeGroups.get(typeUri)!);
-    }
-
-    if (uncategorized.size > 0) {
-        md += generateTable("Uncategorized", uncategorized);
-    }
-
-    if (compressed) {
-        // Model view: use prefixes to save tokens
-        return prefixManager.compressTextWithPrefixes(md, true);
-    } else {
-        // User view: use beautiful [Label](Link) formatting
-        return enrichTextWithLinks(md);
-    }
-}
-
-/**
- * Generates regular TTL from Quads
- */
-export async function formatQuadsToTtl(quads: Quad[]): Promise<string> {
-    const prefixManager = PrefixManager.getInstance();
-    const writer = new Writer({ prefixes: prefixManager.getPrefixMap() });
-    writer.addQuads(quads);
-
-    return new Promise<string>((resolve, reject) => {
-        writer.end((err, result) => {
-            if (err) reject(err);
-            else resolve(result);
-        });
-    });
-}
+import { formatLocalName } from "../uriUtils.js";
+import { escapeHTML } from "./shared.js";
+import { formatQuadsToMarkdown, formatQuadsToTtl } from "./quads.js";
+import { formatQuadsToUserHtml } from "./user.js";
+import type { Explanation, ExplanationStep } from "../../types/index.js";
 
 /**
  * Converts quads to Cytoscape-compatible graph data with proper type classification
@@ -255,9 +105,8 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
     const graphData = quadsToGraphData(quads);
     const graphDataJson = JSON.stringify(graphData);
 
-    // Generate Markdown and render to HTML
-    const markdown = formatQuadsToMarkdown(quads, false);
-    const markdownHtml = await marked.parse(markdown);
+    // Generate Table View (User-friendly HTML Grid)
+    const tableHtml = formatQuadsToUserHtml(quads);
 
     let descriptionHtml = '';
     if (options?.description) {
@@ -293,6 +142,71 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
             --object-edge-color: #888888;
         }
         
+        .term-wrapper {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .tech-term {
+            display: inline-block;
+            background: linear-gradient(135deg, #e8f0fe 0%, #d3e3fd 100%);
+            color: #1967d2;
+            font-size: 0.65em;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 8px;
+            vertical-align: middle;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            border: 1px solid #aecbfa;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            white-space: nowrap;
+        }
+
+        /* Property Grid Styles for better comprehension */
+        .property-grid {
+            display: grid;
+            grid-template-columns: minmax(150px, 20%) 1fr;
+            gap: 1px;
+            background-color: #e0e0e0; /* Border color for grid items */
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-top: 10px;
+            margin-bottom: 20px;
+        }
+
+        .prop-name, .prop-values {
+            background-color: #fff;
+            padding: 10px 15px;
+        }
+
+        .prop-name {
+            background-color: #f9fafb;
+            font-weight: 600;
+            color: #444;
+            border-right: 1px solid #e0e0e0;
+            font-size: 0.95em;
+        }
+
+        .prop-values {
+            color: #333;
+            line-height: 1.5;
+        }
+
+        /* Responsive grid */
+        @media (max-width: 600px) {
+            .property-grid {
+                grid-template-columns: 1fr;
+            }
+            .prop-name {
+                background-color: #f0f4f8;
+                border-bottom: 0;
+                color: #2c5aa0;
+            }
+        }
+
         * { box-sizing: border-box; }
         
         body { 
@@ -568,7 +482,7 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
         
         pre { 
             margin: 0; 
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace; 
+            font-family: \"SFMono-Regular\", Consolas, \"Liberation Mono\", Menlo, Courier, monospace; 
             font-size: 13px; 
             white-space: pre-wrap;
             word-break: break-word;
@@ -622,7 +536,7 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
     
     <div id="table" class="tab-content active">
         <div class="markdown-table-container">
-            ${markdownHtml}
+            ${tableHtml}
         </div>
     </div>
     
@@ -658,7 +572,7 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
             style: [
                 // Instance nodes (blue circles)
                 {
-                    selector: 'node[nodeType="instance"]',
+                    selector: 'node[nodeType=\"instance\"]',
                     style: {
                         'background-color': '#4a90d9',
                         'label': 'data(label)',
@@ -677,7 +591,7 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
                 },
                 // Class nodes (purple hexagons)
                 {
-                    selector: 'node[nodeType="class"]',
+                    selector: 'node[nodeType=\"class\"]',
                     style: {
                         'background-color': '#9b59b6',
                         'shape': 'hexagon',
@@ -698,7 +612,7 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
                 },
                 // Literal nodes (green rounded rectangles)
                 {
-                    selector: 'node[nodeType="literal"]',
+                    selector: 'node[nodeType=\"literal\"]',
                     style: {
                         'background-color': '#2ecc71',
                         'shape': 'round-rectangle',
@@ -718,7 +632,7 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
                 },
                 // rdf:type edges (purple, dashed)
                 {
-                    selector: 'edge[edgeType="type"]',
+                    selector: 'edge[edgeType=\"type\"]',
                     style: {
                         'width': 2,
                         'line-color': '#9b59b6',
@@ -736,7 +650,7 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
                 },
                 // Data property edges (green, to literals)
                 {
-                    selector: 'edge[edgeType="dataProperty"]',
+                    selector: 'edge[edgeType=\"dataProperty\"]',
                     style: {
                         'width': 2,
                         'line-color': '#27ae60',
@@ -752,7 +666,7 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
                 },
                 // Object property edges (gray, between instances)
                 {
-                    selector: 'edge[edgeType="objectProperty"]',
+                    selector: 'edge[edgeType=\"objectProperty\"]',
                     style: {
                         'width': 2,
                         'line-color': '#7f8c8d',
@@ -909,9 +823,9 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
             const data = node.data();
             let html = '<strong>' + data.fullLabel + '</strong>';
             if (data.uri) {
-                html += '<br><a href="' + data.uri + '" target="_blank">' + data.uri + '</a>';
+                html += '<br><a href=\"' + data.uri + '\" target=\"_blank\">' + data.uri + '</a>';
             }
-            html += '<br><small style="color:#888">Type: ' + data.nodeType + '</small>';
+            html += '<br><small style=\"color:#888\">Type: ' + data.nodeType + '</small>';
             nodeInfo.innerHTML = html;
             nodeInfo.classList.add('visible');
         });
@@ -920,8 +834,8 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
             const edge = evt.target;
             const data = edge.data();
             let html = '<strong>' + data.label + '</strong>';
-            html += '<br><a href="' + data.fullLabel + '" target="_blank">' + data.fullLabel + '</a>';
-            html += '<br><small style="color:#888">Edge type: ' + data.edgeType + '</small>';
+            html += '<br><a href=\"' + data.fullLabel + '\" target=\"_blank\">' + data.fullLabel + '</a>';
+            html += '<br><small style=\"color:#888\">Edge type: ' + data.edgeType + '</small>';
             nodeInfo.innerHTML = html;
             nodeInfo.classList.add('visible');
         });
@@ -935,8 +849,6 @@ export async function generateCitationHtml(quads: Quad[], citationId: string, op
 </body>
 </html>`;
 }
-
-import { Explanation, ExplanationStep } from "./ExplanationDatabase.js";
 
 /**
  * Generates an interactive Explanation HTML Page with reproducible steps
@@ -970,7 +882,7 @@ export async function generateExplanationHtml(
         * { box-sizing: border-box; }
         
         body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; 
             padding: 20px; 
             line-height: 1.6; 
             color: var(--text); 
@@ -1152,7 +1064,7 @@ export async function generateExplanationHtml(
         }
         
         .execute-btn.loading::after {
-            content: " ⏳";
+            content: \" ⏳\";
         }
         
         .step-result {
@@ -1201,6 +1113,194 @@ export async function generateExplanationHtml(
             background: var(--border);
             margin-left: 35px;
         }
+
+        /* Inspection Results Styling */
+        .inspection-container h1 {
+            font-size: 1.6em;
+            margin-bottom: 20px;
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary-light);
+            padding-bottom: 8px;
+        }
+
+        .meta-info {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .summary-box {
+            background: linear-gradient(135deg, #e6f0ff 0%, #f0f7ff 100%);
+            border: 2px solid var(--primary);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            box-shadow: 0 2px 4px var(--shadow);
+        }
+
+        .intro-description {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+            padding: 12px 16px;
+            background: #f9f9f9;
+            border-left: 4px solid var(--primary-light);
+            border-radius: 4px;
+        }
+
+        .section-description {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            font-style: italic;
+        }
+
+        .empty-state {
+            background: #fff8e1;
+            border: 2px dashed #ffc107;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            color: #856404;
+            margin: 20px 0;
+        }
+
+        .inspection-section {
+            margin-bottom: 30px;
+        }
+
+        .inspection-section h3 {
+            font-size: 1.1em;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+        }
+
+        /* Search, Triples, and Query Results Styling */
+        .search-results h2,
+        .triples-results h2,
+        .query-results h2 {
+            font-size: 1.4em;
+            color: var(--primary);
+            margin-bottom: 16px;
+            border-bottom: 2px solid var(--primary-light);
+            padding-bottom: 8px;
+        }
+
+        .results-grouped {
+            margin-top: 20px;
+        }
+
+        .results-grouped details {
+            margin-bottom: 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            background: white;
+        }
+
+        .results-grouped summary {
+            cursor: pointer;
+            font-size: 15px;
+            padding: 8px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .results-grouped summary:hover {
+            background: var(--primary-light);
+        }
+
+        .quads-summary {
+            background: #f0f7ff;
+            border-left: 4px solid var(--primary);
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .property-grid {
+            display: grid;
+            grid-template-columns: minmax(140px, auto) 1fr;
+            gap: 1px;
+            background: var(--border);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px var(--shadow);
+        }
+
+        .prop-name {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 13px;
+            color: #495057;
+            display: flex;
+            align-items: center;
+        }
+
+        .prop-values {
+            background: white;
+            padding: 12px 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .value-tag {
+            background: var(--primary-light);
+            color: var(--primary);
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid rgba(0, 102, 204, 0.15);
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .value-tag:hover {
+            background: var(--primary);
+            color: white;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px var(--shadow);
+        }
+
+        .value-literal {
+            background: #f1f3f5;
+            color: #495057;
+            border-color: #dee2e6;
+        }
+
+        .value-literal:hover {
+            background: #e9ecef;
+            color: #212529;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .value-more {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px dashed var(--border);
+            font-style: italic;
+        }
+
+        .value-more:hover {
+            background: transparent;
+            color: var(--text-muted);
+            transform: none;
+            box-shadow: none;
+        }
         
         footer {
             margin-top: 40px;
@@ -1230,7 +1330,7 @@ export async function generateExplanationHtml(
         <h2>🔬 Verification Steps</h2>
         <p>
             Below are the steps the AI took to arrive at this answer. 
-            Click <strong>"▶ Execute Step"</strong> on any step to re-run it and see the actual results from the knowledge graph.
+            Click <strong>\"▶ Execute Step\"</strong> on any step to re-run it and see the actual results from the knowledge graph.
             This allows you to verify (nachvollziehen) what the AI did.
         </p>
     </div>
@@ -1239,10 +1339,10 @@ export async function generateExplanationHtml(
         ${stepsHtml}
     </div>
     
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src=\"https://cdn.jsdelivr.net/npm/marked/marked.min.js\"></script>
     <footer>
         Generated by MCP Knowledge Graph Server • 
-        <a href="${baseUrl}">Back to server</a>
+        <a href=\"${baseUrl}\">Back to server</a>
     </footer>
     
     <script>
@@ -1324,14 +1424,14 @@ async function generateStepHtml(
                 <pre>${escapeHTML(paramsJson)}</pre>
             </details>
             
-            <button class="execute-btn" onclick="executeStep('${explanationId}', ${index}, this)">
+            <button class="execute-btn" onclick=\"executeStep('${explanationId}', ${index}, this)\">
                 ▶ Execute Step
             </button>
             
-            <div class="step-result">
+            <div class=\"step-result\">
                 <h4>Result:</h4>
-                <div class="markdown-result"></div>
-                <pre style="display:none"></pre>
+                <div class=\"markdown-result\"></div>
+                <pre style=\"display:none\"></pre>
             </div>
         </div>`;
 }
