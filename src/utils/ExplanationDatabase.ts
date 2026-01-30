@@ -58,7 +58,8 @@ export class ExplanationDatabase {
         sessionId: string,
         title: string,
         answer: string,
-        steps: ExplanationStep[]
+        steps: ExplanationStep[],
+        success: boolean
     ): string {
         const id = crypto.randomUUID();
 
@@ -67,6 +68,7 @@ export class ExplanationDatabase {
             sessionId,
             title,
             answer,
+            success,
             steps,
             createdAt: new Date(),
         };

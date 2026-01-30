@@ -508,6 +508,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
       description:
         "Create an interactive explanation page with your answer and the steps you took. This is your FINAL output for complex questions. The 'answer' field contains your response with embedded citation links (from cite_xxx tools). The 'steps' field links to SOME of your previous tool executions.",
       inputSchema: {
+        success: z.boolean().describe("A flag indicating if you found what the user has asked for. Set to true if that is the case, otherwise, set it to false"),
         title: z
           .string()
           .describe("A descriptive title for this explanation (e.g., 'Finding papers by Martin Gaedke')"),
@@ -530,6 +531,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
     },
     async (
       request: {
+        success: boolean;
         title: string;
         answer: string;
         steps: Array<{
@@ -539,8 +541,12 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
       },
       extra: any
     ) => {
-      const { title, answer, steps } = request;
+      const { title, answer, steps, success } = request;
       const sessionId = extra?.sessionId;
+
+      // if success==true: 
+      // Check if we have citation data - if not => return to the model telling it that it has to cite the answer triples!
+      // If success==false, then fine. Also adapt this behavior in the user interface (i.e. change the green checkmark to a red cross or whatever in case shit hit the fan and success==false!)
 
       if (!sessionId) {
         return {
@@ -558,6 +564,21 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
         return {
           content: [{ type: "text", text: "Error: At least one step is required." }],
         };
+      }
+
+      if (success) {
+        const activeCitations = citationDb.getCitationsForSession(sessionId);
+        if (activeCitations.length === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  "Error: Missing citations. If success is true, you must call 'cite' to activate citation keys and include the resulting [Source](...) links in your answer before calling 'explain'.",
+              },
+            ],
+          };
+        }
       }
 
       // Resolve execution keys to actual tool parameters
@@ -589,7 +610,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
         };
       }
 
-      const explanationId = explanationService.storeExplanation(sessionId, title, answer, resolvedSteps);
+      const explanationId = explanationService.storeExplanation(sessionId, title, answer, resolvedSteps, success);
       const explanationLink = `${explainBase}/${explanationId}`;
 
       return {
@@ -625,6 +646,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
         sessionId: e.sessionId,
         title: e.title,
         answer: e.answer,
+        success: e.success,
         stepCount: e.steps.length,
         steps: e.steps.map((s: ExplanationStep) => ({
           description: s.description,

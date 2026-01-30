@@ -36,9 +36,10 @@ export class ExplanationService implements StepExecutor {
         sessionId: string,
         title: string,
         answer: string,
-        steps: ExplanationStep[]
+        steps: ExplanationStep[],
+        success: boolean
     ): string {
-        return this.explanationDb.storeExplanation(sessionId, title, answer, steps);
+        return this.explanationDb.storeExplanation(sessionId, title, answer, steps, success);
     }
 
     /**

@@ -871,6 +871,8 @@ export async function generateExplanationHtml(
             --primary-light: #e6f0ff;
             --success: #28a745;
             --success-light: #d4edda;
+            --error: #dc3545;
+            --error-light: #f8d7da;
             --bg: #ffffff;
             --bg-secondary: #f7f7f7;
             --text: #333333;
@@ -902,6 +904,25 @@ export async function generateExplanationHtml(
             margin-bottom: 30px; 
             font-size: 14px; 
         }
+
+        .status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 12px;
+            vertical-align: middle;
+        }
+
+        .status.success {
+            color: var(--success);
+            background: var(--success-light);
+        }
+
+        .status.failure {
+            color: var(--error);
+            background: var(--error-light);
+        }
         
         .intro {
             background: var(--primary-light);
@@ -924,17 +945,33 @@ export async function generateExplanationHtml(
         
         .answer-section {
             background: white;
-            border: 2px solid var(--success);
+            border: 2px solid var(--border);
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 30px;
             box-shadow: 0 2px 8px var(--shadow);
         }
+
+        .answer-section.success {
+            border-color: var(--success);
+        }
+
+        .answer-section.failure {
+            border-color: var(--error);
+        }
         
         .answer-section h2 {
             margin: 0 0 16px 0;
             font-size: 1.2em;
+            color: var(--text);
+        }
+
+        .answer-section.success h2 {
             color: var(--success);
+        }
+
+        .answer-section.failure h2 {
+            color: var(--error);
         }
         
         .answer-content {
@@ -1316,10 +1353,13 @@ export async function generateExplanationHtml(
     <div class="meta">
         Explanation ID: <code>${explanation.id}</code> • 
         Steps: ${explanation.steps.length} • 
-        Created: ${explanation.createdAt.toLocaleString()}
+        Created: ${explanation.createdAt.toLocaleString()} •
+        Status: <span class="status ${explanation.success ? "success" : "failure"}">
+            ${explanation.success ? "✓ Success" : "✗ Not found"}
+        </span>
     </div>
     
-    <div class="answer-section">
+    <div class="answer-section ${explanation.success ? "success" : "failure"}">
         <h2>📝 Answer</h2>
         <div class="answer-content">
             ${await marked.parse(explanation.answer)}
