@@ -252,7 +252,8 @@ export function formatResourceResultForUser(results: ResourceResult[]): string {
 
         for (const result of groupResults) {
             const uriLabel = getReadableName(result.uri);
-            const labelHtml = `<a href="${result.uri}" target="_blank"><strong>${escapeHTML(uriLabel)}</strong></a><br><small style="color:#666; font-size:0.9em;">${result.uri}</small>`;
+            const safeUri = escapeHTML(result.uri);
+            const labelHtml = `<div class="result-label"><a href="${safeUri}" target="_blank"><strong>${escapeHTML(uriLabel)}</strong></a><span class="result-uri">${safeUri}</span></div>`;
 
             let valueHtml = '';
             // If we have property context, show it
@@ -260,7 +261,7 @@ export function formatResourceResultForUser(results: ResourceResult[]): string {
                 const propName = getReadableName(result.textProp);
                 // Clean up pipes if any
                 const cleanPropName = propName.replace(/\|/g, " ");
-                valueHtml += `<div class="match-conn"><span style="color:#666">Matched ${renderTechTerm('Property', 'attribute')}:</span> ${escapeHTML(cleanPropName)}</div>`;
+                valueHtml += `<div class="match-conn">Matched ${renderTechTerm('Property', 'attribute')}: <span class="match-prop">${escapeHTML(cleanPropName)}</span></div>`;
             }
 
             if (result.searchText) {

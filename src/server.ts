@@ -194,13 +194,13 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
   const QueryBuilderInputSchema = {
     type: z
       .string()
-      .describe("The RDF class URI to query (e.g., 'https://dblp.org/rdf/schema#Publication')"),
+      .describe("The RDF class URI to query."),
     filters: z
       .array(
         z.object({
           path: z
             .string()
-            .describe("Property path, dot-separated for traversal (e.g., 'authoredBy.label'). Full URIs MUST be wrapped in <...>. Prefixed names and plain 'label' (shorthand for rdfs:label) are supported."),
+            .describe("Property path, dot-separated for traversal. Allowed segments: `<...>` (wrapping full URIs), `prefix:local`, or `label` (only for rdfs:label). Example: `kg:relatedTo.label` or `<https://example.org/ontology#relatedTo>.label`."),
           operator: z
             .enum(["=", "!=", ">", "<", ">=", "<=", "contains", "search"])
             .describe("Comparison operator"),
@@ -213,7 +213,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
       .describe("Filter conditions applied with AND logic"),
     project: z
       .array(z.string())
-      .describe("Property paths to return as columns (e.g., ['label', 'dblp:yearOfPublication']). Full URIs MUST be wrapped in <...>."),
+      .describe("Property paths to return as columns (e.g., `['label', 'kg:year']`). Allowed segments: `<...>`, `prefix:local`, or `label` (only for rdfs:label)."),
     limit: z
       .number()
       .default(100)
@@ -308,7 +308,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
     "query_builder",
     {
       description:
-        `[EXPLAINABLE] [CITABLE] Build and execute structured queries with relationship traversal. Returns a citation key that can be used with the 'cite' tool (to prove your claims). Use this tool to filter lists of entities.\n\nKey Features:\n- Path Traversal: Filter by properties of related entities using dot notation (e.g., 'dblp:authoredBy.label' checks the label of the author).\n- Multiple Filters: Combine multiple conditions.\n- JSON Escaping: String values with double quotes use standard JSON escaping (\"value\").\n\nExample: "Find publications by 'Martin Gaedke' published after 2020"\n{\n  "type": "https://dblp.org/rdf/schema#Publication",\n  "filters": [\n    { "path": "dblp:authoredBy.label", "operator": "contains", "value": "Martin Gaedke" },\n    { "path": "dblp:yearOfPublication", "operator": ">", "value": "\"2020\"^^xsd:gYear" }\n  ],\n  "project": ["label", "dblp:yearOfPublication", "dblp:authoredBy.label"]\n}`,
+        `[EXPLAINABLE] [CITABLE] Build and execute structured queries with relationship traversal. Returns a citation key that can be used with the 'cite' tool (to prove your claims). Use this tool to filter lists of entities.\n\nKey Features:\n- Path Traversal: Filter by properties of related entities using dot notation (e.g., 'kg:relatedTo.label' checks the label of the related entity).\n- Multiple Filters: Combine multiple conditions.\n- JSON Escaping: If a string contains double quotes, escape them per JSON.\n- Prefixes: \`kg:\` is a placeholder prefix; use a prefix that exists in your KG.\n\nExample: "Find items where a related label contains 'Example' and year is after 2020"\n{\n  "type": "kg:Item",\n  "filters": [\n    { "path": "kg:relatedTo.label", "operator": "contains", "value": "Example" },\n    { "path": "kg:year", "operator": ">", "value": "2020" }\n  ],\n  "project": ["label", "kg:year", "kg:relatedTo.label"]\n}`,
       inputSchema: QueryBuilderInputSchema,
     },
     async (request: QueryBuilderRequest, extra: any) => {

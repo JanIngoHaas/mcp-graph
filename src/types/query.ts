@@ -5,7 +5,7 @@ import { Quad } from "@rdfjs/types";
  * Filter condition with support for property path traversal
  */
 export interface QueryBuilderFilter {
-    /** Property path, dot-separated for traversal (e.g., 'dblp:authoredBy.label', 'dblp:yearOfPublication') */
+    /** Property path, dot-separated for traversal (e.g., 'kg:relatedTo.label', 'kg:year', 'label') */
     path: string;
     /** Comparison operator */
     operator: '=' | '!=' | '>' | '<' | '>=' | '<=' | 'contains' | 'search';
@@ -52,4 +52,3 @@ export interface ParsedPropertyPath {
     /** A unique identifier for this path */
     pathId: string;
 }
-
