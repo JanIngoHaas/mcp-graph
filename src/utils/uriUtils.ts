@@ -61,30 +61,19 @@ export function formatSparqlValue(value: string): string {
 
 /**
  * Resolve a property name to a SPARQL-ready string.
- * This is "smarter" than formatSparqlValue as it handles:
- * 1. Already bracketed URIs <...>
- * 2. The 'label' keyword -> rdfs:label
+ * This is "smarter" than formatSparqlValue as it provides a focused error message
+ * for invalid properties.
  * @param property - The property string to resolve
  * @returns SPARQL-ready property URI or prefixed name
  */
 export function resolvePropertyToUri(property: string): string {
-    // If it's already a full URI in brackets, return as is
-    if (property.startsWith('<') && property.endsWith('>')) {
-        return property;
-    }
-
-    // Special case: 'label' means <http://www.w3.org/2000/01/rdf-schema#label>
-    if (property === 'label') {
-        return '<http://www.w3.org/2000/01/rdf-schema#label>';
-    }
-
     // Reuse formatSparqlValue for the rest
     try {
         return formatSparqlValue(property);
     } catch (e) {
         let prefixManager = PrefixManager.getInstance();
         let availablePrefixes = prefixManager.getAvailablePrefixes();
-        throw new Error(`Cannot resolve property '${property}'. Use a full URI (optionally in <...>), a prefixed name (using one of the following prefixes: ${availablePrefixes.join(', ')}), or 'label'.`);
+        throw new Error(`Cannot resolve property '${property}'. Use a full URI (e.g., https://example.org/property) or a prefixed name (using one of the following prefixes: ${availablePrefixes.join(', ')}).`);
     }
 }
 

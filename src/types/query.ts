@@ -5,7 +5,7 @@ import { Quad } from "@rdfjs/types";
  * Filter condition with support for property path traversal
  */
 export interface QueryBuilderFilter {
-    /** Property path, dot-separated for traversal (e.g., 'kg:relatedTo.label', 'kg:year', 'label') */
+    /** Property path, use `->` between segments (e.g., 'kg:relatedTo -> rdfs:label', 'kg:year') */
     path: string;
     /** Comparison operator */
     operator: '=' | '!=' | '>' | '<' | '>=' | '<=' | 'contains' | 'search';

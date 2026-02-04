@@ -47,6 +47,14 @@ export class FallbackBackend implements SearchBackend {
 }
 
 export class QLeverBackend implements SearchBackend {
+  private buildAnchorVar(variable: string): string {
+    // Derive a unique anchor variable per searched variable to avoid accidental joins
+    // across multiple textSearch SERVICE blocks.
+    const base = variable.replace(/^[?$]/, '');
+    const sanitized = base.replace(/[^A-Za-z0-9_]/g, '_');
+    return `?anchor_${sanitized || 'var'}`;
+  }
+
   generateWordsSearchPattern(words: string[], variable: string): string {
     const allWords: string[] = [];
     words.forEach(word => {
@@ -60,10 +68,11 @@ export class QLeverBackend implements SearchBackend {
     }
 
     // Use anchor pattern for QLever text search
+    const anchorVar = this.buildAnchorVar(variable);
     const wordConditions = allWords.map(word =>
-      `?anchor textSearch:contains [ textSearch:word "${word.toLocaleLowerCase()}*" ]`
+      `${anchorVar} textSearch:contains [ textSearch:word "${word.toLocaleLowerCase()}*" ]`
     ).join(' . ');
-    const entityCondition = `?anchor textSearch:contains [ textSearch:entity ${variable} ]`;
+    const entityCondition = `${anchorVar} textSearch:contains [ textSearch:entity ${variable} ]`;
 
     return `SERVICE textSearch: { ${wordConditions} . ${entityCondition} }`;
   }
