@@ -5,6 +5,7 @@ import type {
     StepExecutionResult,
     StepExecutor
 } from "../types/index.js";
+import { generateHumanId } from "./humanId.js";
 
 /**
  * Database for storing and retrieving explanations.
@@ -32,7 +33,7 @@ export class ExplanationDatabase {
         toolName: string,
         params: Record<string, any>
     ): string {
-        const id = crypto.randomUUID();
+        const id = this.generateId(this.executions);
         const execution: ToolExecution = {
             id,
             sessionId,
@@ -61,7 +62,7 @@ export class ExplanationDatabase {
         steps: ExplanationStep[],
         success: boolean
     ): string {
-        const id = crypto.randomUUID();
+        const id = this.generateId(this.explanations);
 
         const explanation: Explanation = {
             id,
@@ -82,6 +83,14 @@ export class ExplanationDatabase {
         this.sessionExplanations.get(sessionId)!.add(id);
 
         return id;
+    }
+
+    private generateId(map: Map<string, unknown>): string {
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+            const id = generateHumanId(4);
+            if (!map.has(id)) return id;
+        }
+        throw new Error("Failed to generate unique explanation ID");
     }
 
     /**

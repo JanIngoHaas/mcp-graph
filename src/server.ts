@@ -263,9 +263,9 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
     "cite",
     {
       description:
-        "Activate a citation. Pass the 'key' (UUID) you received from 'fact' or 'query_builder' to generate a permanent user-facing link that the user can open in their browser and view to verify your claims!",
+        "Activate a citation. Pass the 'key' you received from 'fact' or 'query_builder' to generate a permanent user-facing link that the user can open in their browser and view to verify your claims!",
       inputSchema: {
-        key: z.string().describe("The citation key (UUID) to activate")
+        key: z.string().describe("The citation key to activate")
       },
     },
     async (request: { key: string }) => {
@@ -520,7 +520,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
             z.object({
               executionKey: z
                 .string()
-                .describe("The Execution Key (UUID) returned by a previous tool execution (search, inspect, etc.)"),
+                .describe("The Execution Key returned by a previous tool execution (search, inspect, etc.)"),
               description: z
                 .string()
                 .describe("Human-readable description of what this step did and why you took it (e.g., 'I used the ID from the previous step to find his publications')"),

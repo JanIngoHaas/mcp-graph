@@ -87,7 +87,8 @@ The `cite` tool generates unique, resolvable URLs for RDF triples:
 2. **Cite** them using the `cite` tool to get a URL
 3. Users can click the citation link to view the raw RDF triples in Turtle format
 
-Citation URLs are session-scoped and use random UUIDs for privacy.
+Citation URLs are session-scoped and use human-readable word IDs.
+Wordlist source: https://github.com/david47k/top-english-wordlists (top_english_words_lower_20000.txt).
 
 ## Architecture
 

@@ -78,7 +78,7 @@ The server uses **HTTP Streamable Transport** (not stdio):
 ### Citation System
 
 Each server instance has its own `CitationDatabase`:
-- Citations use random UUIDs (privacy-friendly)
+- Citations use human-readable word IDs
 - `cite` tool stores triples and returns URLs like `http://localhost:3000/citation/{uuid}`
 - Citations are session-scoped and cleaned up when sessions close
 

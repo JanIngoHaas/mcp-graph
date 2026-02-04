@@ -1,5 +1,6 @@
 import { Quad } from "@rdfjs/types";
 import { QueryBuilderResult } from "../types/index.js";
+import { generateHumanId } from "./humanId.js";
 
 /**
  * Citation for RDF triples
@@ -36,7 +37,7 @@ export class CitationDatabase {
     private sessionCitations: Map<string, Set<string>> = new Map();
 
 
-    private storeGenericCitation(citation: Citation, citationId: `${string}-${string}-${string}-${string}-${string}`): string {
+    private storeGenericCitation(citation: Citation, citationId: string): string {
         this.citations.set(citationId, citation);
 
         // Track citation for session cleanup
@@ -48,14 +49,22 @@ export class CitationDatabase {
         return citationId;
     }
 
+    private generateId(): string {
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+            const id = generateHumanId(4);
+            if (!this.citations.has(id)) return id;
+        }
+        throw new Error("Failed to generate unique citation ID");
+    }
+
     /**
-     * Store triples and generate a unique citation ID (random UUID)
+     * Store triples and generate a unique citation ID (human-readable)
      * @param sessionId - The session ID that created this citation
      * @param quads - The RDF quads
      * @returns The unique citation ID
      */
     storeCitation(sessionId: string, quads: Quad[]): string {
-        const citationId = crypto.randomUUID();
+        const citationId = this.generateId();
 
         const citation: TripleCitation = {
             type: 'triple',
@@ -77,7 +86,7 @@ export class CitationDatabase {
      * @returns The unique citation ID
      */
     storeQueryBuilderCitation(sessionId: string, result: QueryBuilderResult, description: string): string {
-        const citationId = crypto.randomUUID();
+        const citationId = this.generateId();
 
         const citation: QueryBuilderCitation = {
             type: 'queryBuilder',
