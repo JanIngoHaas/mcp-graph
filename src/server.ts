@@ -47,6 +47,7 @@ Usage Information:
 4) [EXPLAINABLE] [CITABLE] Use 'fact' to check facts (simple pattern matching). This tool can be CITED.
 5) [EXPLAINABLE] [CITABLE] Use 'query_builder' to build explainable queries more easily. This tool can be CITED.
 6) Use 'cite' to activate a citation for a fact or query you have verified.
+7) Use 'explain' to create an interactive report of your findings also referencing your citations.
 
 WORKFLOW FOR COMPLEX QUESTIONS:
 1) Use 'search' to find relevant entities, classes, and properties
@@ -366,7 +367,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
         query: z
           .string()
           .describe(
-            `Boolean search query using syntactic, fuzzy search algorithm (be more precise). Examples: '"Albert Einstein"' (exact phrase), 'Albert Einstein' (sentences containing both 'Albert' and 'Einstein'. PREFER THIS - you will have better results and you can later fine-tune your search), 'Thomas OR Albert' (union), 'physicist AND Nobel' (intersection), '(quantum mechanics) AND Einstein' (grouping), 'Thomas Hinkel' (both words must appear). Quoted strings are exact phrases, unquoted multi-words require all words to appear. PREFER UNQUOTED for better results.`
+            `Boolean search query using a syntactic, substring-matching search algorithm (be more precise). Examples: '"Albert Einstein"' (exact phrase), 'Albert Einstein' (sentences containing both 'Albert' and 'Einstein' <-- PREFER THIS - you will have better results and you can later fine-tune your search), 'Thomas OR Albert' (union), 'physicist AND Nobel' (intersection), '(quantum mechanics) AND Einstein' (grouping), 'Thomas Hinkel' (both words must appear). Quoted strings are exact phrases, unquoted multi-words require all words to appear. PREFER UNQUOTED for better results.`
           ),
         limit: z
           .number()

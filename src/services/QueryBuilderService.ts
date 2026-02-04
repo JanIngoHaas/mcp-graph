@@ -84,7 +84,8 @@ export class QueryBuilderService {
         }
 
         const numValue = parseFloat(value);
-        if (!isNaN(numValue) && value.trim() === numValue.toString()) {
+        // Check if the value is a valid number (handles "10.0", "10", etc.)
+        if (!isNaN(numValue) && /^-?\d+\.?\d*$/.test(value.trim())) {
             return `FILTER(${variable} ${operator} ${numValue})`;
         } else {
             return `FILTER(STR(${variable}) ${operator} "${value}")`;
