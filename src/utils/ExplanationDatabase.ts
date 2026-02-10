@@ -60,7 +60,7 @@ export class ExplanationDatabase {
         title: string,
         answer: string,
         steps: ExplanationStep[],
-        success: boolean
+        found: boolean
     ): string {
         const id = this.generateId(this.explanations);
 
@@ -69,7 +69,7 @@ export class ExplanationDatabase {
             sessionId,
             title,
             answer,
-            success,
+            found,
             steps,
             createdAt: new Date(),
         };

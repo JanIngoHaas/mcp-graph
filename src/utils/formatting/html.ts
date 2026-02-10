@@ -1,6 +1,5 @@
 import { Quad } from "@rdfjs/types";
 import { marked } from "marked";
-import { formatLocalName } from "../uriUtils.js";
 import { escapeHTML } from "./shared.js";
 import { formatQuadsToMarkdown, formatQuadsToTtl } from "./quads.js";
 import { formatQuadsToUserHtml } from "./user.js";
@@ -2118,13 +2117,13 @@ export async function generateExplanationHtml(
                     <div class="chip">${explanation.steps.length} steps</div>
                     <div class="chip">${explanation.createdAt.toLocaleString()}</div>
                 </div>
-                <span class="status ${explanation.success ? "success" : "failure"}">
-                    ${explanation.success ? "Success" : "Not found"}
+                <span class="status ${explanation.found ? "success" : "failure"}">
+                    ${explanation.found ? "Found" : "Not found"}
                 </span>
             </div>
         </header>
 
-        <section class="answer-section ${explanation.success ? "success" : "failure"}">
+        <section class="answer-section ${explanation.found ? "success" : "failure"}">
             <h2>Answer</h2>
             <div class="answer-content">
                 ${await marked.parse(explanation.answer)}

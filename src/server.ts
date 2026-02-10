@@ -105,9 +105,10 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
     const result = await executor();
 
     // Log Execution (Explainable)
+    let executionId: string | undefined;
     let explainMsg = "";
     if (options.explainable) {
-      const executionId = explanationDb.logExecution(sessionId, toolName, request);
+      executionId = explanationDb.logExecution(sessionId, toolName, request);
       explainMsg = `\n\nExecution Key: ${executionId}. Call 'explain' with this key and an explanation to give the user insight into your reasoning.`;
     }
 
@@ -116,12 +117,13 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
     if (result.citation) {
       let citationId;
       if (result.citation.type === "triple") {
-        citationId = citationDb.storeCitation(sessionId, result.citation.data);
+        citationId = citationDb.storeCitation(sessionId, result.citation.data, executionId);
       } else {
         citationId = citationDb.storeQueryBuilderCitation(
           sessionId,
           result.citation.data,
-          result.citation.description || ""
+          result.citation.description || "",
+          executionId
         );
       }
       citationMsg = `\n\nCitation Key: ${citationId}. Call 'cite' with this key to generate a verification link.`;
@@ -271,9 +273,9 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
     },
     async (request: { key: string }) => {
       const { key } = request;
-      const success = citationDb.activateCitation(key);
+      const citationActivated = citationDb.activateCitation(key);
 
-      if (success) {
+      if (citationActivated) {
         // reconstruct the link to show it to the agent
         const citationLink = `${citationBase}/${key}`;
         return {
@@ -509,7 +511,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
       description:
         "Create an interactive explanation page with your answer and the steps you took. This is your FINAL output for complex questions. The 'answer' field contains your response with embedded citation links (from cite_xxx tools). The 'steps' field links to SOME of your previous tool executions.",
       inputSchema: {
-        success: z.boolean().describe("A flag indicating if you found what the user has asked for. Set to true if that is the case, otherwise, set it to false"),
+        found: z.boolean().describe("A flag indicating if you found what the user has asked for. Set to true if yes, otherwise set to false."),
         title: z
           .string()
           .describe("A descriptive title for this explanation (e.g., 'Finding papers by Martin Gaedke')"),
@@ -532,7 +534,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
     },
     async (
       request: {
-        success: boolean;
+        found: boolean;
         title: string;
         answer: string;
         steps: Array<{
@@ -542,12 +544,12 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
       },
       extra: any
     ) => {
-      const { title, answer, steps, success } = request;
+      const { title, answer, steps, found } = request;
       const sessionId = extra?.sessionId;
 
-      // if success==true: 
+      // if found==true:
       // Check if we have citation data - if not => return to the model telling it that it has to cite the answer triples!
-      // If success==false, then fine. Also adapt this behavior in the user interface (i.e. change the green checkmark to a red cross or whatever in case shit hit the fan and success==false!)
+      // If found==false, then fine.
 
       if (!sessionId) {
         return {
@@ -567,7 +569,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
         };
       }
 
-      if (success) {
+      if (found) {
         const activeCitations = citationDb.getCitationsForSession(sessionId);
         if (activeCitations.length === 0) {
           return {
@@ -575,7 +577,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
               {
                 type: "text",
                 text:
-                  "Error: Missing citations. If success is true, you must call 'cite' to activate citation keys and include the resulting [Source](...) links in your answer before calling 'explain'.",
+                  "Error: Missing citations. If found is true, you must call 'cite' to activate citation keys and include the resulting [Source](...) links in your answer before calling 'explain'.",
               },
             ],
           };
@@ -611,7 +613,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
         };
       }
 
-      const explanationId = explanationService.storeExplanation(sessionId, title, answer, resolvedSteps, success);
+      const explanationId = explanationService.storeExplanation(sessionId, title, answer, resolvedSteps, found);
       const explanationLink = `${explainBase}/${explanationId}`;
 
       return {
@@ -647,7 +649,7 @@ PREFER query_builder: Always prefer 'query_builder' over raw 'query' for finding
         sessionId: e.sessionId,
         title: e.title,
         answer: e.answer,
-        success: e.success,
+        found: e.found,
         stepCount: e.steps.length,
         steps: e.steps.map((s: ExplanationStep) => ({
           description: s.description,

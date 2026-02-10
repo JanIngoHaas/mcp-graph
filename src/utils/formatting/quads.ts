@@ -1,7 +1,7 @@
 import { Quad } from "@rdfjs/types";
 import { PrefixManager } from "../PrefixManager.js";
 import { Writer } from "n3";
-import { formatLocalName, enrichTextWithLinks } from "../uriUtils.js";
+import { formatLocalName, enrichTextWithLinks } from "../sparqlFormatting.js";
 import { generateMarkdownTable } from "./shared.js";
 
 /**

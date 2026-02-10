@@ -1,10 +1,18 @@
 import { QueryService } from "./QueryService.js";
 import { PrefixManager } from "../utils/PrefixManager.js";
-import { resolveLabel, formatSparqlValue, getReadableName, formatLocalName, resolvePropertyToUri } from "../utils/uriUtils.js";
+import {
+    resolveLabel,
+    formatUriOrPrefixedName,
+    getReadableName,
+    formatLocalName,
+    resolvePropertyToUri,
+    buildLiteralFilter
+} from "../utils/sparqlFormatting.js";
 import { Quad } from "@rdfjs/types";
 import { PathParser } from "../utils/PathParser.js";
 import { QueryParserService, FallbackBackend } from "../utils/queryParser.js";
 import { QueryBuilderResult, QueryBuilderParams, QueryBuilderFilter, ParsedPropertyPath } from "../types/index.js";
+
 
 /**
  * Service for building structured SPARQL queries with property path traversal
@@ -63,7 +71,11 @@ export class QueryBuilderService {
     }
 
     /**
-     * Build a SPARQL filter expression
+     * Build a SPARQL filter expression.
+     * Handles three value types:
+     * 1. Numeric (including scientific notation) - uses SPARQL numeric comparison
+     * 2. DateTime (ISO-8601) - normalizes and casts to xsd:dateTime for semantic comparison
+     * 3. Plain strings - uses string comparison
      */
     private buildFilterExpression(
         variable: string,
@@ -79,17 +91,13 @@ export class QueryBuilderService {
             throw new Error(`Unsupported operator: ${operator}`);
         }
 
+        // If value is already a typed literal (quoted with datatype), use as-is
         if (value.startsWith('"') || value.startsWith("'") || value.startsWith('<')) {
             return `FILTER(${variable} ${operator} ${value})`;
         }
 
-        const numValue = parseFloat(value);
-        // Check if the value is a valid number (handles "10.0", "10", etc.)
-        if (!isNaN(numValue) && /^-?\d+\.?\d*$/.test(value.trim())) {
-            return `FILTER(${variable} ${operator} ${numValue})`;
-        } else {
-            return `FILTER(STR(${variable}) ${operator} "${value}")`;
-        }
+        // Use shared utility for numeric/datetime/string literal handling
+        return buildLiteralFilter(variable, operator, value);
     }
 
     /**
@@ -115,7 +123,7 @@ export class QueryBuilderService {
             return pathIds.get(path)!;
         };
 
-        const formattedType = formatSparqlValue(type);
+        const formattedType = formatUriOrPrefixedName(type);
         constructPatterns.push(`?entity a ${formattedType} .`);
         wherePatterns.push(`?entity a ${formattedType} .`);
 
@@ -161,6 +169,7 @@ export class QueryBuilderService {
 
         const sparqlQuery = `
             PREFIX textSearch: <https://qlever.cs.uni-freiburg.de/textSearch/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
             CONSTRUCT {
                 ${constructPatterns.join('\n                ')}
             }

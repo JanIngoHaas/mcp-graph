@@ -49,7 +49,14 @@ export class CitationDatabase {
         return citationId;
     }
 
-    private generateId(): string {
+    private generateId(preferredId?: string): string {
+        if (preferredId) {
+            if (this.citations.has(preferredId)) {
+                throw new Error(`Citation ID already exists: ${preferredId}`);
+            }
+            return preferredId;
+        }
+
         for (let attempt = 0; attempt < 10; attempt += 1) {
             const id = generateHumanId(4);
             if (!this.citations.has(id)) return id;
@@ -63,8 +70,8 @@ export class CitationDatabase {
      * @param quads - The RDF quads
      * @returns The unique citation ID
      */
-    storeCitation(sessionId: string, quads: Quad[]): string {
-        const citationId = this.generateId();
+    storeCitation(sessionId: string, quads: Quad[], preferredId?: string): string {
+        const citationId = this.generateId(preferredId);
 
         const citation: TripleCitation = {
             type: 'triple',
@@ -85,8 +92,13 @@ export class CitationDatabase {
      * @param description - Human-readable description of the query
      * @returns The unique citation ID
      */
-    storeQueryBuilderCitation(sessionId: string, result: QueryBuilderResult, description: string): string {
-        const citationId = this.generateId();
+    storeQueryBuilderCitation(
+        sessionId: string,
+        result: QueryBuilderResult,
+        description: string,
+        preferredId?: string
+    ): string {
+        const citationId = this.generateId(preferredId);
 
         const citation: QueryBuilderCitation = {
             type: 'queryBuilder',

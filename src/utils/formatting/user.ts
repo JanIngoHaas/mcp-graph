@@ -1,5 +1,5 @@
 import type { InspectionResult, ClassInspection, PropertyInspection, EntityInspection, ResourceResult, QueryBuilderResult } from "../../types/index.js";
-import { getReadableName } from "../uriUtils.js";
+import { getReadableName } from "../sparqlFormatting.js";
 import { MAX_VALUES_TO_SHOW_INLINE, SEARCH_RESULT_TEXT_LIMIT, SEARCH_RESULT_TRUNCATE_LENGTH, escapeHTML } from "./shared.js";
 import { renderTechTerm } from "./termUtils.js";
 import { Quad } from "@rdfjs/types";

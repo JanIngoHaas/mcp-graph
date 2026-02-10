@@ -1,4 +1,4 @@
-import { getReadableName, formatSparqlValue } from "../utils/uriUtils.js";
+import { getReadableName, formatUriOrPrefixedName } from "../utils/sparqlFormatting.js";
 import { QueryService } from "./QueryService.js";
 import { EmbeddingHelper } from "./EmbeddingHelper.js";
 import { cos_sim } from "@huggingface/transformers";
@@ -100,7 +100,7 @@ export class InspectionService {
       PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
       PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
       SELECT ?propURI ?propLabel ?propDescr ?propRange ?propRangeLabel ?propDomain ?propDomainLabel WHERE {
-        BIND(${formatSparqlValue(uri)} AS ?propURI) .
+        BIND(${formatUriOrPrefixedName(uri)} AS ?propURI) .
         
         OPTIONAL { ?propURI rdfs:label ?propLabel }
         OPTIONAL { ?propURI rdfs:comment ?propDescr }
@@ -157,7 +157,7 @@ export class InspectionService {
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
         PREFIX owl: <http://www.w3.org/2002/07/owl#>
         SELECT (GROUP_CONCAT(DISTINCT ?parent; SEPARATOR = " -> ") AS ?hierarchy) WHERE {
-          ${formatSparqlValue(domainUri)} rdfs:subClassOf* ?parent .
+          ${formatUriOrPrefixedName(domainUri)} rdfs:subClassOf* ?parent .
           FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
         }
       `;
@@ -179,7 +179,7 @@ export class InspectionService {
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
         PREFIX owl: <http://www.w3.org/2002/07/owl#>
         SELECT (GROUP_CONCAT(DISTINCT ?parent; SEPARATOR = " -> ") AS ?hierarchy) WHERE {
-          ${formatSparqlValue(rangeUri)} rdfs:subClassOf* ?parent .
+          ${formatUriOrPrefixedName(rangeUri)} rdfs:subClassOf* ?parent .
           FILTER(?parent != <http://www.w3.org/2002/07/owl#Thing>)
         }
       `;
@@ -230,7 +230,7 @@ export class InspectionService {
     PREFIX dc: <http://purl.org/dc/elements/1.1/>
     PREFIX dbo: <http://dbpedia.org/ontology/>
     SELECT DISTINCT ?classURI ?classLabel ?classDescr ?propRange ?propRangeLabel ?propDomain ?propDomainLabel WHERE {
-      BIND(${formatSparqlValue(uri)} AS ?classURI) .
+      BIND(${formatUriOrPrefixedName(uri)} AS ?classURI) .
 
       OPTIONAL { ?classURI rdfs:label ?classLabel }
       OPTIONAL { ?classURI rdfs:comment ?classDescr }
@@ -316,7 +316,7 @@ export class InspectionService {
         {
           # Outgoing connections: uri -> property -> value
           SELECT ?property ?value ?direction WHERE {
-            ${formatSparqlValue(uri)} ?property ?value .
+            ${formatUriOrPrefixedName(uri)} ?property ?value .
             BIND("outgoing" AS ?direction)
           }
         }
@@ -324,7 +324,7 @@ export class InspectionService {
         {
           # Incoming connections: value -> property -> uri
           SELECT ?property ?value ?direction WHERE {
-            ?value ?property ${formatSparqlValue(uri)} .
+            ?value ?property ${formatUriOrPrefixedName(uri)} .
             BIND("incoming" AS ?direction)
           }
         }

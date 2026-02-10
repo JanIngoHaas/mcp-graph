@@ -33,7 +33,7 @@ export interface Explanation {
     /** The final answer with embedded citation links */
     answer: string;
     /** Whether the agent found what the user asked for */
-    success: boolean;
+    found: boolean;
     steps: ExplanationStep[];
     createdAt: Date;
 }
