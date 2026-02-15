@@ -1,4 +1,4 @@
-# Knowledge Graph MCP Server
+# Knowledge Graph MCP Server (WIP)
 
 A Model Context Protocol (MCP) HTTP server for intelligent exploration and querying of RDF knowledge graphs with semantic search capabilities.
 
